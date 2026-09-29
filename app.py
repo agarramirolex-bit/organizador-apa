@@ -75,6 +75,10 @@ import sqlite3
 import pandas as pd
 import streamlit as st
 
+import sqlite3
+import pandas as pd
+import streamlit as st
+
 def init_db():
     conn = sqlite3.connect("fuentes_apa.db")
     c = conn.cursor()
@@ -110,6 +114,24 @@ def init_db():
 
 # Ejecutamos al inicio
 init_db()
+    
+    # Migración automática de columnas para bases de datos existentes
+    columnas_nuevas = [
+        ("tipo_fuente", "TEXT DEFAULT 'General'"),
+        ("es_favorito", "INTEGER DEFAULT 0"),
+        ("tags", "TEXT DEFAULT ''")
+    ]
+    for col_nombre, col_tipo in columnas_nuevas:
+        try:
+            c.execute(f"ALTER TABLE citas ADD COLUMN {col_nombre} {col_tipo}")
+        except sqlite3.OperationalError:
+            pass  # La columna ya existe, no hace nada
+            
+    conn.commit()
+    conn.close()
+
+# Ejecutamos al inicio
+init_db()
 
 def guardar_cita_db(autor, anio, titulo, fuente, url, cita_apa, cita_in_text):
     conn = sqlite3.connect("fuentes_apa.db")
@@ -123,14 +145,16 @@ def guardar_cita_db(autor, anio, titulo, fuente, url, cita_apa, cita_in_text):
 
 def obtener_citas_db():
     conn = sqlite3.connect("fuentes_apa.db")
-    # Agregamos 'url' a los campos seleccionados
     df = pd.read_sql_query(
-        "SELECT id, autor, anio, titulo, fuente, url, cita_in_text AS 'Cita en Texto', cita_apa AS 'Referencia APA 7' FROM citas ORDER BY id DESC", 
+        """SELECT id, autor, anio, titulo, fuente, url, 
+                  cita_in_text AS 'Cita en Texto', 
+                  cita_apa AS 'Referencia APA 7',
+                  tipo_fuente, es_favorito, tags 
+           FROM citas ORDER BY id DESC""", 
         conn
     )
     conn.close()
     return df
-
 init_db()
 
 # --- INTERFAZ PRINCIPAL ---
@@ -644,78 +668,90 @@ with tab1:
                 st.error("Ingresa al menos el título o autor.")
 
 with tab2:
-    st.subheader("🔍 Base de Datos de Fuentes Guardadas")
+    st.subheader("🔍 Biblioteca de Fuentes Guardadas")
     df_citas = obtener_citas_db()
     
     if df_citas.empty:
-        st.info("Aún no has guardado ninguna cita. Genera una en la primera pestaña y haz clic en 'Guardar en Base de Datos'.")
+        st.info("Aún no has guardado ninguna cita en la base de datos.")
     else:
-        # 1. ORDENAR Y PREPARAR DATOS (APA 7 exige orden alfabético por autor)
-        # Reemplazamos valores nulos de autor por el título para un ordenamiento correcto
+        # Orden alfabético predeterminado por autor/título
         df_citas['autor_sort'] = df_citas['autor'].fillna(df_citas['titulo'])
         df_ordenado = df_citas.sort_values(by="autor_sort", ascending=True).drop(columns=['autor_sort'])
         
-        # 2. BARRA SUPERIOR: Métricas y Botones de Exportación
-        col_m, col_txt, col_csv = st.columns([2, 1, 1])
+        # --- 1. PANEL DE FILTROS AVANZADO ---
+        with st.expander("🎛️ Filtros de búsqueda y orden", expanded=True):
+            col_search, col_tipo = st.columns([2, 1])
+            with col_search:
+                busqueda = st.text_input("🔎 Búsqueda general (Autor, Título, Revista, Tags):", key="search_db")
+            with col_tipo:
+                tipos_disponibles = ["Todos"] + sorted(list(df_ordenado['tipo_fuente'].dropna().unique()))
+                filtro_tipo = st.selectbox("Tipo de fuente:", tipos_disponibles)
+                
+            col_fav, col_vista = st.columns([1, 1])
+            with col_fav:
+                solo_favs = st.checkbox("⭐ Mostrar solo favoritos")
+            with col_vista:
+                modo_vista = st.radio("Vista:", ["Tarjetas", "Tabla"], horizontal=True)
+
+        # --- 2. LÓGICA DE FILTRADO COMBINADO ---
+        df_filtrado = df_ordenado.copy()
         
-        with col_m:
-            st.metric("Total de fuentes", len(df_ordenado))
+        # Filtro de texto libre
+        if busqueda:
+            mask_busqueda = (
+                df_filtrado['titulo'].astype(str).str.contains(busqueda, case=False, na=False) |
+                df_filtrado['autor'].astype(str).str.contains(busqueda, case=False, na=False) |
+                df_filtrado['anio'].astype(str).str.contains(busqueda, case=False, na=False) |
+                df_filtrado['tags'].astype(str).str.contains(busqueda, case=False, na=False)
+            )
+            df_filtrado = df_filtrado[mask_busqueda]
             
-        # Preparar texto completo ordenado para descargar
-        bibliografia_completa = "\n\n".join(df_ordenado['Referencia APA 7'].dropna().tolist())
+        # Filtro por tipo de fuente
+        if filtro_tipo != "Todos":
+            df_filtrado = df_filtrado[df_filtrado['tipo_fuente'] == filtro_tipo]
+            
+        # Filtro de favoritos
+        if solo_favs:
+            df_filtrado = df_filtrado[df_filtrado['es_favorito'] == 1]
+
+        # --- 3. BARRA DE HERRAMIENTAS Y EXPORTACIÓN ---
+        st.caption(f"Mostrando **{len(df_filtrado)}** de **{len(df_citas)}** fuentes.")
+        
+        col_txt, col_csv = st.columns(2)
+        bibliografia_completa = "\n\n".join(df_filtrado['Referencia APA 7'].dropna().tolist())
         
         with col_txt:
             st.download_button(
-                label="📄 Exportar Lista (.TXT)",
+                label="📄 Exportar Resultados (.TXT)",
                 data=bibliografia_completa,
-                file_name="bibliografia_apa7.txt",
+                file_name="bibliografia_filtrada.txt",
                 mime="text/plain",
                 use_container_width=True
             )
-            
         with col_csv:
-            csv_data = df_ordenado.to_csv(index=False).encode('utf-8')
+            csv_data = df_filtrado.to_csv(index=False).encode('utf-8')
             st.download_button(
-                label="📊 Exportar Excel (.CSV)",
+                label="📊 Exportar Resultados (.CSV)",
                 data=csv_data,
-                file_name="citas_respaldo.csv",
+                file_name="citas_filtradas.csv",
                 mime="text/csv",
                 use_container_width=True
             )
-            
+
         st.divider()
-        
-        # 3. FILTROS Y MODO DE VISTA
-        c_busq, c_vista = st.columns([3, 1])
-        with c_busq:
-            busqueda = st.text_input("🔎 Buscar por autor, título o año:", key="search_db")
-        with c_vista:
-            modo_vista = st.radio("Vista:", ["Tarjetas", "Tabla"], horizontal=True)
-            
-        # Aplicar filtro de búsqueda si existe
-        if busqueda:
-            mask = (
-                df_ordenado['titulo'].astype(str).str.contains(busqueda, case=False, na=False) |
-                df_ordenado['autor'].astype(str).str.contains(busqueda, case=False, na=False) |
-                df_ordenado['anio'].astype(str).str.contains(busqueda, case=False, na=False)
-            )
-            df_filtrado = df_ordenado[mask]
-        else:
-            df_filtrado = df_ordenado
-            
-        st.caption(f"Mostrando {len(df_filtrado)} de {len(df_citas)} fuentes guardadas.")
-        
-        # 4. RENDERIZADO DE FUENTES
+
+        # --- 4. RENDERIZADO DE RESULTADOS ---
         if modo_vista == "Tabla":
             st.dataframe(df_filtrado, use_container_width=True)
             
-        else:  # Vista de Tarjetas (Optimizada para copiar y leer)
+        else:  # Vista Tarjetas
             for _, row in df_filtrado.iterrows():
-                autor_head = row['autor'] if row['autor'] else "Sin autor"
-                anio_head = f"({row['anio']})" if row['anio'] else "(s. f.)"
-                titulo_head = row['titulo'][:50] + "..." if len(str(row['titulo'])) > 50 else row['titulo']
+                es_fav = "⭐ " if row.get('es_favorito') == 1 else ""
+                autor_head = row['autor'] if pd.notna(row['autor']) and row['autor'] else "Sin autor"
+                anio_head = f"({row['anio']})" if pd.notna(row['anio']) and row['anio'] else "(s. f.)"
+                titulo_head = str(row['titulo'])[:45] + "..." if len(str(row['titulo'])) > 45 else str(row['titulo'])
                 
-                expander_label = f"📖 {autor_head} {anio_head} — {titulo_head}"
+                expander_label = f"{es_fav}📖 {autor_head} {anio_head} — {titulo_head}"
                 
                 with st.expander(expander_label):
                     col_info, col_del = st.columns([4, 1])
@@ -727,11 +763,14 @@ with tab2:
                         st.markdown("**Cita en texto:**")
                         st.code(row['Cita en Texto'], language=None)
                         
-                        if row['url']:
-                            st.caption(f"🔗 **Enlace:** [{row['url']}]({row['url']})")
+                        url_val = row.get('url')
+                        if pd.notna(url_val) and str(url_val).strip():
+                            st.caption(f"🔗 **Enlace:** [{url_val}]({url_val})")
+                            
+                        if pd.notna(row.get('tags')) and str(row.get('tags')).strip():
+                            st.caption(f"🏷️ **Tags:** `{row['tags']}`")
                             
                     with col_del:
-                        st.write("")  # Espaciado visual
                         if st.button("🗑️ Eliminar", key=f"del_{row['id']}", type="secondary"):
                             conn = sqlite3.connect("fuentes_apa.db")
                             c = conn.cursor()
