@@ -1,9 +1,10 @@
 streamlit
+extra-streamlit-components
 requests
+pandas
+urllib3
 yt-dlp
 pdfplumber
 pdf2image
 pytesseract
 beautifulsoup4
-pandas
-extra-streamlit-components
