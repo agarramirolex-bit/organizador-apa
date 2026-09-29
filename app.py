@@ -8,7 +8,54 @@ import pandas as pd
 import requests
 import streamlit as st
 import urllib3
+import spacy
 
+# Cargar el modelo en español
+nlp = spacy.load("es_core_news_sm")
+
+# Opcional: Diccionario mínimo solo si quieres forzar temas padre
+CATEGORIAS_PADRE = {
+    "Psiquiatría": "Psicología",
+    "Pornografía": "Psicología",
+    "Funcionalismo": "Psicología",
+}
+
+
+def extraer_y_unificar_etiquetas(texto):
+    """Procesa el texto con spaCy para extraer sustantivos, verbos y adjetivos en su forma base (infinitivo/singular)."""
+    if not texto:
+        return []
+
+    doc = nlp(texto)
+    etiquetas_finales = set()
+
+    for token in doc:
+        # Filtrar solo palabras relevantes (sustantivos, verbos, adjetivos, nombres propios)
+        # Excluir palabras vacías (stopwords), puntuación y palabras de menos de 3 letras
+        if (
+            token.pos_ in ["NOUN", "VERB", "ADJ", "PROPN"]
+            and not token.is_stop
+            and len(token.text) > 2
+        ):
+
+            # token.lemma_ convierte verbos a infinitivo ("memorizaste" -> "memorizar")
+            # y sustantivos/adjetivos a su forma base singular.
+            lema_base = token.lemma_.strip("#").capitalize()
+
+            if lema_base:
+                etiquetas_finales.add(f"#{lema_base}")
+
+                # Si la palabra base tiene una categoría padre definida, la agrega automáticamente
+                if lema_base in CATEGORIAS_PADRE:
+                    etiquetas_finales.add(f"#{CATEGORIAS_PADRE[lema_base]}")
+
+    return sorted(list(etiquetas_finales))
+
+
+# --- EJEMPLO DE USO ---
+texto_ejemplo = "Ayer estuve memorizando conceptos de psiquiatría y evaluando los procesos cognitivos."
+print(extraer_y_unificar_etiquetas(texto_ejemplo))
+# Resultado: ['#Cognitivo', '#Evaluador', '#Memorizar', '#Proceso', '#Psicología', '#Psiquiatría']
 # Desactivar advertencias SSL si algún sitio académico las requiere
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
