@@ -8,17 +8,6 @@ import pandas as pd
 import requests
 import streamlit as st
 import urllib3
-import subprocess
-import sys
-import es_core_news_sm
-import spacy
-
-@st.cache_resource
-def cargar_spacy():
-    return es_core_news_sm.load()
-
-
-nlp = cargar_spacy()
 
 try:
     import yt_dlp
@@ -1281,7 +1270,7 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
             by="autor_sort", ascending=True
         ).drop(columns=["autor_sort"])
 
-        with st.expander("🎛️ Filtros de búsqueda y orden", expanded=True):
+        with st.expander("🎛️️ Filtros de búsqueda y orden", expanded=True):
             col_search, col_tipo = st.columns([2, 1])
             with col_search:
                 busqueda = st.text_input(
