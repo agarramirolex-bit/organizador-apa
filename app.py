@@ -4,7 +4,6 @@ import json
 import re
 import sqlite3
 import xml.etree.ElementTree as ET
-import extra_streamlit_components as stx
 import pandas as pd
 import requests
 import streamlit as st
@@ -172,7 +171,7 @@ def obtener_citas_db():
     return df
 
 
-# --- INTERFAZ PRINCIPAL ---
+# --- INTERFAZ PRINCIPAL Y SESSION STATE ---
 st.title("📚 Organizador de Fuentes y Generador APA 7")
 st.write(
     "Extrae metadatos mediante DOI, YouTube, sitios web o análisis GROBID de"
@@ -193,7 +192,29 @@ if "in_tipo_fuente" not in st.session_state:
     st.session_state["in_tipo_fuente"] = "Artículo de Revista"
 
 
-def limpiar_campos():
+# --- FUNCIONES DE DETECCIÓN Y LIMPIEZA EN TIEMPO REAL ---
+def actualizar_tipo_al_tipear():
+    """Analiza la URL o DOI ingresado y actualiza el tipo de fuente automáticamente."""
+    texto = (
+        st.session_state.get("in_url", "").strip()
+        or st.session_state.get("input_extraer", "").strip()
+    )
+    texto_lower = texto.lower()
+
+    if "youtube.com" in texto_lower or "youtu.be" in texto_lower:
+        st.session_state["in_tipo_fuente"] = "Video / Multimedia"
+    elif "doi.org" in texto_lower or "10." in texto_lower:
+        st.session_state["in_tipo_fuente"] = "Artículo de Revista"
+    elif (
+        texto_lower.startswith("http://")
+        or texto_lower.startswith("https://")
+        or "www." in texto_lower
+    ):
+        st.session_state["in_tipo_fuente"] = "Página Web"
+
+
+def al_cambiar_input_extraer():
+    """Callback para el campo de extracción superior."""
     if not st.session_state.get("input_extraer", "").strip():
         st.session_state["in_autor"] = ""
         st.session_state["in_anio"] = ""
@@ -203,6 +224,8 @@ def limpiar_campos():
         st.session_state["in_tipo_fuente"] = "Artículo de Revista"
         if "last_referencia_apa" in st.session_state:
             del st.session_state["last_referencia_apa"]
+    else:
+        actualizar_tipo_al_tipear()
 
 
 def procesar_autores_y_citas(autor_str, titulo_str, anio_str):
@@ -309,8 +332,6 @@ def extraer_datos_doi(doi_input):
                 container[0] if container else data.get("publisher", "")
             )
             st.session_state["in_url"] = f"https://doi.org/{clean_doi}"
-
-            # Detección automática del tipo de fuente
             st.session_state["in_tipo_fuente"] = "Artículo de Revista"
 
             return True, "¡Metadatos DOI extraídos con éxito!"
@@ -354,7 +375,6 @@ def extraer_datos_youtube(url):
             else:
                 st.session_state["in_anio"] = ""
 
-            # Detección automática del tipo de fuente
             st.session_state["in_tipo_fuente"] = "Video / Multimedia"
 
         return True, "¡Metadatos de YouTube extraídos con éxito!"
@@ -526,8 +546,6 @@ def extraer_datos_web(url):
         if anio:
             st.session_state["in_anio"] = anio
         st.session_state["in_url"] = url
-
-        # Detección automática del tipo de fuente
         st.session_state["in_tipo_fuente"] = "Página Web"
 
         if titulo or autores:
@@ -622,8 +640,6 @@ def procesar_pdf_con_grobid(archivo_pdf_bytes):
             st.session_state["in_anio"] = anio
         if url:
             st.session_state["in_url"] = url
-
-        # Detección automática del tipo de fuente
         st.session_state["in_tipo_fuente"] = "Artículo de Revista"
 
         if titulo or autores:
@@ -780,8 +796,6 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
             st.session_state["in_fuente"] = revista
             st.session_state["in_anio"] = anio
             st.session_state["in_url"] = ""
-
-            # Detección automática del tipo de fuente
             st.session_state["in_tipo_fuente"] = "Artículo de Revista"
 
             return True, "¡Análisis local del PDF completado!"
@@ -799,7 +813,7 @@ with tab1:
     input_busqueda = st.text_input(
         "Pega una URL (YouTube/Revista web), código DOI o link:",
         key="input_extraer",
-        on_change=limpiar_campos,
+        on_change=al_cambiar_input_extraer,
     )
     col_btn, col_file = st.columns([1, 2])
 
@@ -856,7 +870,9 @@ with tab1:
     fuente_in = st.text_input(
         "Revista / Editorial / Sitio Web", key="in_fuente"
     )
-    url_in = st.text_input("URL / DOI", key="in_url")
+    url_in = st.text_input(
+        "URL / DOI", key="in_url", on_change=actualizar_tipo_al_tipear
+    )
 
     st.divider()
 
@@ -910,6 +926,9 @@ with tab1:
     st.divider()
     st.subheader("📌 Guardar en la Biblioteca")
 
+    # Asegura la última comprobación del tipo de fuente antes de dibujar el widget
+    actualizar_tipo_al_tipear()
+
     # Opciones del menú desplegable
     opciones_tipo = [
         "Artículo de Revista",
@@ -921,7 +940,7 @@ with tab1:
         "Otro",
     ]
 
-    # Determinación del índice dinámico según la fuente extraída
+    # Determinación del índice dinámico
     tipo_detectado = st.session_state.get("in_tipo_fuente", "Artículo de Revista")
     idx_defecto = (
         opciones_tipo.index(tipo_detectado)
@@ -1135,7 +1154,7 @@ with tab2:
                             st.caption(f"🔗 **Enlace:** [{url_val}]({url_val})")
 
                         if pd.notna(row.get("tags")) and str(row.get("tags")).strip():
-                            st.caption(f"🏷️ **Tags:** `{row['tags']}`")
+                            st.caption(f"🏷️️ **Tags:** `{row['tags']}`")
 
                     with col_del:
                         if st.button(
