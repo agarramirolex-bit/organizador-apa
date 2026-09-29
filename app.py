@@ -41,16 +41,19 @@ except ImportError:
 # Configuración de página
 st.set_page_config(page_title="Organizador APA 7 (Español)", page_icon="📚", layout="centered")
 
-# --- CONTROL DE ACCESO PERSISTENTE (CON COOKIES) ---
+# --- CONTROL DE ACCESO CON COOKIES (CORREGIDO) ---
 CONTRASEÑA_CORRECTA = "Cypher"
 
 cookie_manager = stx.CookieManager(key="cookie_manager_auth")
-token_dispositivo = cookie_manager.get(cookie="auth_token_cypher")
 
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 
-if token_dispositivo == "CypherOK":
+# Obtenemos todas las cookies cargadas por el navegador
+cookies = cookie_manager.get_all()
+
+# Verificamos si la cookie existe en el diccionario devuelto
+if cookies.get("auth_token_cypher") == "CypherOK":
     st.session_state["autenticado"] = True
 
 if not st.session_state["autenticado"]:
