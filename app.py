@@ -40,6 +40,7 @@ except ImportError:
 
 # Configuración de página
 st.set_page_config(page_title="Organizador APA 7 (Español)", page_icon="📚", layout="centered")
+
 # --- CONTROL DE ACCESO PERSISTENTE CON URL Y SESSION STATE ---
 CONTRASEÑA_CORRECTA = "Cypher"
 
@@ -71,14 +72,6 @@ if not st.session_state["autenticado"]:
 # --- CONFIGURACIÓN GROBID Y BASE DE DATOS ---
 GROBID_URL = "https://grobid.kermitt.org/api/processHeaderDocument"
 
-import sqlite3
-import pandas as pd
-import streamlit as st
-
-import sqlite3
-import pandas as pd
-import streamlit as st
-
 def init_db():
     conn = sqlite3.connect("fuentes_apa.db")
     c = conn.cursor()
@@ -98,7 +91,7 @@ def init_db():
         tags TEXT DEFAULT ''
     )''')
     
-    # Migración automática de columnas
+    # Migración automática de columnas para bases de datos existentes
     columnas_nuevas = [
         ("tipo_fuente", "TEXT DEFAULT 'General'"),
         ("es_favorito", "INTEGER DEFAULT 0"),
@@ -114,9 +107,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Ejecutar la función
-init_db()
-# Ejecutamos al inicio
+# Inicializar Base de Datos al arrancar
 init_db()
 
 def guardar_cita_db(autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente="General", es_favorito=0, tags=""):
@@ -141,7 +132,6 @@ def obtener_citas_db():
     )
     conn.close()
     return df
-init_db()
 
 # --- INTERFAZ PRINCIPAL ---
 st.title("📚 Organizador de Fuentes y Generador APA 7")
@@ -644,53 +634,75 @@ with tab1:
         
         st.session_state["last_cita_in_text"] = f"Par: {cita_par} | Nar: {cita_nar}"
         st.session_state["last_referencia_apa"] = referencia_final
-st.divider()
-st.subheader("📌 Guardar en la Biblioteca")
 
-# 1. Nuevos campos de organización
-c_tipo, c_fav = st.columns([3, 1])
+    st.divider()
+    st.subheader("📌 Guardar en la Biblioteca")
 
-with c_tipo:
-    tipo_fuente = st.selectbox(
-        "Tipo de fuente:",
-        ["Artículo de Revista", "Libro", "Capítulo de Libro", "Página Web", "Tesis / Monografía", "Video / Multimedia", "Otro"]
+    # Campos de organización
+    c_tipo, c_fav = st.columns([3, 1])
+
+    with c_tipo:
+        tipo_fuente = st.selectbox(
+            "Tipo de fuente:",
+            ["Artículo de Revista", "Libro", "Capítulo de Libro", "Página Web", "Tesis / Monografía", "Video / Multimedia", "Otro"]
+        )
+
+    with c_fav:
+        st.write("")  # Espaciado vertical
+        st.write("")
+        es_fav = st.checkbox("⭐ Marcar como favorito")
+
+    tags_input = st.text_input(
+        "🏷️ Etiquetas / Tags (separadas por coma):",
+        placeholder="Ej: #MarcoTeorico, #Metodologia, #Capitulo1"
     )
 
-with c_fav:
-    st.write("")  # Espaciado vertical
-    st.write("")
-    es_fav = st.checkbox("⭐ Marcar como favorito")
-
-tags_input = st.text_input(
-    "🏷️ Etiquetas / Tags (separadas por coma):",
-    placeholder="Ej: #MarcoTeorico, #Metodologia, #Capitulo1"
-)
-
-# 2. Botón de guardado actualizado
-if st.button("💾 Guardar en Base de Datos", type="primary", use_container_width=True):
-    # Convertimos el checkbox a entero (1 o 0)
-    fav_int = 1 if es_fav else 0
-    
-    guardar_cita_db(
-        autor=autor_resultado,          # Ajusta con el nombre de tu variable
-        anio=anio_resultado,            # Ajusta con el nombre de tu variable
-        titulo=titulo_resultado,        # Ajusta con el nombre de tu variable
-        fuente=fuente_resultado,        # Ajusta con el nombre de tu variable
-        url=url_resultado,              # Ajusta con el nombre de tu variable
-        cita_in_text=cita_texto_res,    # Ajusta con el nombre de tu variable
-        cita_apa=cita_apa_res,          # Ajusta con el nombre de tu variable
-        tipo_fuente=tipo_fuente,
-        es_favorito=fav_int,
-        tags=tags_input.strip()
-    )
-    st.success("¡Fuente guardada exitosamente en tu biblioteca!")
-    if "last_referencia_apa" in st.session_state:
-        if st.button("💾 Guardar en Base de Datos", key="btn_guardar"):
-            if titulo_in.strip() or autor_in.strip():
-                guardar_cita_db(autor_in, anio_in, titulo_in, fuente_in, url_in, st.session_state["last_referencia_apa"], st.session_state["last_cita_in_text"])
-                st.success("¡Cita y Referencia guardadas exitosamente!")
+    # Botón de guardado funcional
+    if st.button("💾 Guardar en Base de Datos", key="btn_guardar_db", type="primary", use_container_width=True):
+        if titulo_in.strip() or autor_in.strip():
+            # Si no ha presionado previamente "Generar Cita", calculamos el formato al vuelo
+            if "last_referencia_apa" not in st.session_state or "last_cita_in_text" not in st.session_state:
+                ref_autores, cita_par, cita_nar, anio_ref = procesar_autores_y_citas(autor_in, titulo_in, anio_in)
+                partes_ref = []
+                if ref_autores:
+                    partes_ref.append(f"{ref_autores}")
+                    partes_ref.append(f"{anio_ref}.")
+                else:
+                    if titulo_in.strip(): partes_ref.append(f"*{titulo_in.strip()}*.")
+                    partes_ref.append(f"{anio_ref}.")
+                    
+                if ref_autores and titulo_in.strip():
+                    if "YouTube" in fuente_in:
+                        partes_ref.append(f"{titulo_in.strip()}.")
+                    else:
+                        partes_ref.append(f"*{titulo_in.strip()}*.")
+                    
+                if fuente_in.strip(): partes_ref.append(f"{fuente_in.strip()}.")
+                if url_in.strip(): partes_ref.append(url_in.strip())
+                    
+                cita_apa_val = " ".join(partes_ref)
+                cita_in_text_val = f"Par: {cita_par} | Nar: {cita_nar}"
             else:
-                st.error("Ingresa al menos el título o autor.")
+                cita_apa_val = st.session_state["last_referencia_apa"]
+                cita_in_text_val = st.session_state["last_cita_in_text"]
+
+            fav_int = 1 if es_fav else 0
+
+            guardar_cita_db(
+                autor=autor_in,
+                anio=anio_in,
+                titulo=titulo_in,
+                fuente=fuente_in,
+                url=url_in,
+                cita_in_text=cita_in_text_val,
+                cita_apa=cita_apa_val,
+                tipo_fuente=tipo_fuente,
+                es_favorito=fav_int,
+                tags=tags_input.strip()
+            )
+            st.success("¡Fuente guardada exitosamente en tu biblioteca!")
+        else:
+            st.error("Ingresa al menos el título o autor antes de guardar.")
 
 with tab2:
     st.subheader("🔍 Biblioteca de Fuentes Guardadas")
