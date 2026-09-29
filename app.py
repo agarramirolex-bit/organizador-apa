@@ -1,4 +1,6 @@
 import streamlit as st
+import extra_streamlit_components as stx
+import datetime
 import requests
 import re
 import sqlite3
@@ -7,9 +9,8 @@ import io
 import urllib3
 import json
 import xml.etree.ElementTree as ET
-import extra_streamlit_components as stx
-import datetime
-# Desactivar advertencias de SSL no verificado si algún sitio académico las requiere
+
+# Desactivar advertencias SSL si algún sitio académico las requiere
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 try:
@@ -43,16 +44,12 @@ st.set_page_config(page_title="Organizador APA 7 (Español)", page_icon="📚", 
 # --- CONTROL DE ACCESO PERSISTENTE (CON COOKIES) ---
 CONTRASEÑA_CORRECTA = "Cypher"
 
-# Inicializar administrador de cookies
 cookie_manager = stx.CookieManager(key="cookie_manager_auth")
-
-# Intentar leer la cookie guardada en el navegador
 token_dispositivo = cookie_manager.get(cookie="auth_token_cypher")
 
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 
-# Si el navegador ya tiene la cookie guardada, dar acceso automático
 if token_dispositivo == "CypherOK":
     st.session_state["autenticado"] = True
 
@@ -66,7 +63,6 @@ if not st.session_state["autenticado"]:
         if clave_ingresada == CONTRASEÑA_CORRECTA:
             st.session_state["autenticado"] = True
             
-            # Guardar la cookie en el navegador por 30 días
             cookie_manager.set(
                 cookie="auth_token_cypher",
                 val="CypherOK",
@@ -76,7 +72,7 @@ if not st.session_state["autenticado"]:
         else:
             st.error("Contraseña incorrecta. Inténtalo de nuevo.")
             
-    st.stop()  # Detiene la app hasta autenticarse
+    st.stop()
 
 # --- CONFIGURACIÓN GROBID Y BASE DE DATOS ---
 GROBID_URL = "https://grobid.kermitt.org/api/processHeaderDocument"
@@ -350,7 +346,6 @@ def extraer_datos_web(url):
     except Exception as e:
         return False, f"Error al acceder a la página web: {str(e)}"
 
-# --- EXTRACCIÓN GROBID ---
 def procesar_pdf_con_grobid(archivo_pdf_bytes):
     try:
         files = {'input': ('documento.pdf', archivo_pdf_bytes, 'application/pdf')}
@@ -411,7 +406,6 @@ def procesar_pdf_con_grobid(archivo_pdf_bytes):
     except Exception as e:
         return False, f"Error de conexión con GROBID: {str(e)}"
 
-# --- ESCÁNER RESPALDO ---
 def procesar_pdf_profundo(archivo_pdf_bytes):
     if not PDF_DISPONIBLE:
         return False, "Librería pdfplumber no disponible."
