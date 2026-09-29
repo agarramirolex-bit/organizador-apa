@@ -6,3 +6,4 @@ pdf2image
 pytesseract
 beautifulsoup4
 pandas
+extra-streamlit-components
