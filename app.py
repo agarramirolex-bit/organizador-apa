@@ -105,7 +105,11 @@ def guardar_cita_db(autor, anio, titulo, fuente, url, cita_apa, cita_in_text):
 
 def obtener_citas_db():
     conn = sqlite3.connect("fuentes_apa.db")
-    df = pd.read_sql_query("SELECT id, autor, anio, titulo, fuente, cita_in_text AS 'Cita en Texto', cita_apa AS 'Referencia APA 7' FROM citas ORDER BY id DESC", conn)
+    # Agregamos 'url' a los campos seleccionados
+    df = pd.read_sql_query(
+        "SELECT id, autor, anio, titulo, fuente, url, cita_in_text AS 'Cita en Texto', cita_apa AS 'Referencia APA 7' FROM citas ORDER BY id DESC", 
+        conn
+    )
     conn.close()
     return df
 
