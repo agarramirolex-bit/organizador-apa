@@ -10,8 +10,14 @@ import streamlit as st
 import urllib3
 import spacy
 
-# Cargar el modelo en español
-nlp = spacy.load("es_core_news_sm")
+# Cargar modelo con respaldo de descarga automática
+try:
+    nlp = spacy.load("es_core_news_sm")
+except OSError:
+    import spacy.cli
+
+    spacy.cli.download("es_core_news_sm")
+    nlp = spacy.load("es_core_news_sm")
 
 # Opcional: Diccionario mínimo solo si quieres forzar temas padre
 CATEGORIAS_PADRE = {
