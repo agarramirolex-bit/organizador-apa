@@ -190,27 +190,34 @@ if "in_url" not in st.session_state:
     st.session_state["in_url"] = ""
 if "in_tipo_fuente" not in st.session_state:
     st.session_state["in_tipo_fuente"] = "Artículo de Revista"
+if "select_tipo_fuente" not in st.session_state:
+    st.session_state["select_tipo_fuente"] = "Artículo de Revista"
 
 
 # --- FUNCIONES DE DETECCIÓN Y LIMPIEZA EN TIEMPO REAL ---
 def actualizar_tipo_al_tipear():
-    """Analiza la URL o DOI ingresado y actualiza el tipo de fuente automáticamente."""
+    """Analiza la URL o DOI ingresado y actualiza la clave del selectbox directamente."""
     texto = (
         st.session_state.get("in_url", "").strip()
         or st.session_state.get("input_extraer", "").strip()
     )
     texto_lower = texto.lower()
 
+    nuevo_tipo = None
     if "youtube.com" in texto_lower or "youtu.be" in texto_lower:
-        st.session_state["in_tipo_fuente"] = "Video / Multimedia"
+        nuevo_tipo = "Video / Multimedia"
     elif "doi.org" in texto_lower or "10." in texto_lower:
-        st.session_state["in_tipo_fuente"] = "Artículo de Revista"
+        nuevo_tipo = "Artículo de Revista"
     elif (
         texto_lower.startswith("http://")
         or texto_lower.startswith("https://")
         or "www." in texto_lower
     ):
-        st.session_state["in_tipo_fuente"] = "Página Web"
+        nuevo_tipo = "Página Web"
+
+    if nuevo_tipo:
+        st.session_state["in_tipo_fuente"] = nuevo_tipo
+        st.session_state["select_tipo_fuente"] = nuevo_tipo
 
 
 def al_cambiar_input_extraer():
@@ -222,6 +229,7 @@ def al_cambiar_input_extraer():
         st.session_state["in_fuente"] = ""
         st.session_state["in_url"] = ""
         st.session_state["in_tipo_fuente"] = "Artículo de Revista"
+        st.session_state["select_tipo_fuente"] = "Artículo de Revista"
         if "last_referencia_apa" in st.session_state:
             del st.session_state["last_referencia_apa"]
     else:
@@ -333,6 +341,7 @@ def extraer_datos_doi(doi_input):
             )
             st.session_state["in_url"] = f"https://doi.org/{clean_doi}"
             st.session_state["in_tipo_fuente"] = "Artículo de Revista"
+            st.session_state["select_tipo_fuente"] = "Artículo de Revista"
 
             return True, "¡Metadatos DOI extraídos con éxito!"
         return False, "No se encontraron datos en Crossref."
@@ -376,6 +385,7 @@ def extraer_datos_youtube(url):
                 st.session_state["in_anio"] = ""
 
             st.session_state["in_tipo_fuente"] = "Video / Multimedia"
+            st.session_state["select_tipo_fuente"] = "Video / Multimedia"
 
         return True, "¡Metadatos de YouTube extraídos con éxito!"
     except Exception as e:
@@ -547,6 +557,7 @@ def extraer_datos_web(url):
             st.session_state["in_anio"] = anio
         st.session_state["in_url"] = url
         st.session_state["in_tipo_fuente"] = "Página Web"
+        st.session_state["select_tipo_fuente"] = "Página Web"
 
         if titulo or autores:
             return True, "¡Metadatos del sitio web extraídos con éxito!"
@@ -641,6 +652,7 @@ def procesar_pdf_con_grobid(archivo_pdf_bytes):
         if url:
             st.session_state["in_url"] = url
         st.session_state["in_tipo_fuente"] = "Artículo de Revista"
+        st.session_state["select_tipo_fuente"] = "Artículo de Revista"
 
         if titulo or autores:
             return True, "¡Metadatos analizados con éxito mediante GROBID!"
@@ -685,6 +697,7 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
                         "Requiere revisión manual (OCR)"
                     )
                     st.session_state["in_tipo_fuente"] = "Artículo de Revista"
+                    st.session_state["select_tipo_fuente"] = "Artículo de Revista"
                     return True, "PDF escaneado. Se aplicó OCR básico."
                 else:
                     return False, "No se pudo extraer texto legible del PDF."
@@ -797,6 +810,7 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
             st.session_state["in_anio"] = anio
             st.session_state["in_url"] = ""
             st.session_state["in_tipo_fuente"] = "Artículo de Revista"
+            st.session_state["select_tipo_fuente"] = "Artículo de Revista"
 
             return True, "¡Análisis local del PDF completado!"
 
@@ -926,9 +940,6 @@ with tab1:
     st.divider()
     st.subheader("📌 Guardar en la Biblioteca")
 
-    # Asegura la última comprobación del tipo de fuente antes de dibujar el widget
-    actualizar_tipo_al_tipear()
-
     # Opciones del menú desplegable
     opciones_tipo = [
         "Artículo de Revista",
@@ -940,21 +951,12 @@ with tab1:
         "Otro",
     ]
 
-    # Determinación del índice dinámico
-    tipo_detectado = st.session_state.get("in_tipo_fuente", "Artículo de Revista")
-    idx_defecto = (
-        opciones_tipo.index(tipo_detectado)
-        if tipo_detectado in opciones_tipo
-        else 0
-    )
-
     c_tipo, c_fav = st.columns([3, 1])
 
     with c_tipo:
         tipo_fuente = st.selectbox(
             "Tipo de fuente:",
             opciones_tipo,
-            index=idx_defecto,
             key="select_tipo_fuente",
         )
 
@@ -1154,7 +1156,7 @@ with tab2:
                             st.caption(f"🔗 **Enlace:** [{url_val}]({url_val})")
 
                         if pd.notna(row.get("tags")) and str(row.get("tags")).strip():
-                            st.caption(f"🏷️️ **Tags:** `{row['tags']}`")
+                            st.caption(f"🏷 **Tags:** `{row['tags']}`")
 
                     with col_del:
                         if st.button(
