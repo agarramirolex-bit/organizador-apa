@@ -67,6 +67,16 @@ def traducir_al_espanol(texto):
     return texto
 
 
+# --- HELPER ISBN ---
+def es_isbn(texto):
+    """Verifica si la cadena ingresada corresponde a un formato ISBN-10 o ISBN-13."""
+    clean = re.sub(r"[\s\-]", "", texto)
+    return (
+        bool(re.match(r"^(978|979)?\d{9}[\dX]$", clean, re.IGNORECASE))
+        and len(clean) in [10, 13]
+    )
+
+
 # --- LISTA DE PALABRAS A IGNORAR (STOPWORDS) PARA ETIQUETAS ---
 STOPWORDS = {
     "de",
@@ -181,6 +191,10 @@ STOPWORDS = {
     "https",
     "com",
     "www",
+    "isbn",
+    "edition",
+    "edicion",
+    "editorial",
 }
 
 
@@ -203,7 +217,7 @@ def extraer_palabras_clave_texto(texto):
     for p in palabras:
         if p.lower() not in STOPWORDS and p.lower() not in palabras_filtradas:
             palabras_filtradas.append(p)
-            if len(palabras_filtradas) >= 10:
+            if len(palabras_filtradas) >= 12:
                 break
 
     for p in palabras_filtradas:
@@ -339,8 +353,8 @@ def obtener_citas_db():
 # --- INTERFAZ PRINCIPAL Y SESSION STATE ---
 st.title("📚 Organizador de Fuentes y Generador APA 7")
 st.write(
-    "Extrae metadatos mediante DOI, YouTube, sitios web o análisis GROBID de"
-    " artículos PDF según las **normas APA 7.ª edición en español**."
+    "Extrae metadatos mediante **DOI, ISBN, YouTube, páginas web o archivos"
+    " PDF** según las **normas APA 7.ª edición en español**."
 )
 
 if "in_autor" not in st.session_state:
@@ -408,6 +422,8 @@ def actualizar_tipo_al_tipear():
         nuevo_tipo = "Video / Multimedia"
     elif "doi.org" in texto_lower or "10." in texto_lower:
         nuevo_tipo = "Artículo de Revista"
+    elif es_isbn(texto):
+        nuevo_tipo = "Libro"
     elif (
         texto_lower.startswith("http://")
         or texto_lower.startswith("https://")
@@ -489,6 +505,108 @@ def procesar_autores_y_citas(autor_str, titulo_str, anio_str):
     cita_narrativa = f"{autor_cita} ({anio_cita_texto})"
 
     return ref_autores, cita_parentetica, cita_narrativa, anio_ref
+
+
+def extraer_datos_isbn(isbn_input):
+    """Extrae metadatos de un libro ingresando su código ISBN."""
+    st.session_state["sugerencias_tags"] = []
+    clean_isbn = re.sub(r"[^\dX]", "", isbn_input.upper())
+
+    if not clean_isbn:
+        return False, "Formato de ISBN no válido."
+
+    # Intento 1: API de Google Books
+    try:
+        url_gb = f"https://www.googleapis.com/books/v1/volumes?q=isbn:{clean_isbn}"
+        res_gb = requests.get(url_gb, timeout=10)
+        if res_gb.status_code == 200:
+            data = res_gb.json()
+            if data.get("totalItems", 0) > 0:
+                book = data["items"][0]["volumeInfo"]
+
+                titulo = book.get("title", "")
+                if book.get("subtitle"):
+                    titulo += f": {book.get('subtitle')}"
+                st.session_state["in_titulo"] = titulo
+
+                autores_raw = book.get("authors", [])
+                autores_fmt = []
+                for a in autores_raw:
+                    partes = a.split(" ")
+                    if len(partes) > 1:
+                        apellido = partes[-1]
+                        inicial = partes[0][0] + "."
+                        autores_fmt.append(f"{apellido}, {inicial}")
+                    else:
+                        autores_fmt.append(a)
+                st.session_state["in_autor"] = ", ".join(autores_fmt)
+
+                pub_date = book.get("publishedDate", "")
+                st.session_state["in_anio"] = pub_date[:4] if pub_date else ""
+                st.session_state["in_fuente"] = book.get("publisher", "")
+                st.session_state["in_url"] = (
+                    f"https://isbnsearch.org/isbn/{clean_isbn}"
+                )
+                st.session_state["in_tipo_fuente"] = "Libro"
+                st.session_state["select_tipo_fuente"] = "Libro"
+
+                sugerencias = []
+                for cat in book.get("categories", []):
+                    cat_es = traducir_al_espanol(cat)
+                    tag_cat = f"#{re.sub(r'[^\w]', '', cat_es).capitalize()}"
+                    if tag_cat not in sugerencias:
+                        sugerencias.append(tag_cat)
+
+                desc = book.get("description", "")
+                tags_desc = extraer_palabras_clave_texto(f"{titulo} {desc}")
+                for t in tags_desc:
+                    if t not in sugerencias:
+                        sugerencias.append(t)
+
+                st.session_state["sugerencias_tags"] = sugerencias[:10]
+                return True, "¡Metadatos del libro extraídos vía Google Books!"
+    except Exception:
+        pass
+
+    # Intento 2: Fallback a Open Library API
+    try:
+        url_ol = f"https://openlibrary.org/api/books?bibkeys=ISBN:{clean_isbn}&jscmd=data&format=json"
+        res_ol = requests.get(url_ol, timeout=10)
+        if res_ol.status_code == 200:
+            data_ol = res_ol.json()
+            key = f"ISBN:{clean_isbn}"
+            if key in data_ol:
+                book = data_ol[key]
+                st.session_state["in_titulo"] = book.get("title", "")
+
+                authors = [
+                    a.get("name", "") for a in book.get("authors", [])
+                ]
+                st.session_state["in_autor"] = ", ".join(authors)
+
+                pub_date = book.get("publish_date", "")
+                st.session_state["in_anio"] = (
+                    pub_date[-4:] if len(pub_date) >= 4 else ""
+                )
+
+                publishers = [
+                    p.get("name", "") for p in book.get("publishers", [])
+                ]
+                st.session_state["in_fuente"] = ", ".join(publishers)
+
+                st.session_state["in_url"] = book.get(
+                    "url", f"https://openlibrary.org/isbn/{clean_isbn}"
+                )
+                st.session_state["in_tipo_fuente"] = "Libro"
+                st.session_state["select_tipo_fuente"] = "Libro"
+
+                sug = extraer_palabras_clave_texto(book.get("title", ""))
+                st.session_state["sugerencias_tags"] = sug[:10]
+                return True, "¡Metadatos del libro extraídos vía Open Library!"
+    except Exception as e:
+        return False, f"Error de conexión al consultar ISBN: {str(e)}"
+
+    return False, "No se encontraron registros para el ISBN proporcionado."
 
 
 def extraer_datos_doi(doi_input):
@@ -761,7 +879,10 @@ def extraer_datos_web(url):
                 if clean_kw not in sugerencias_web:
                     sugerencias_web.append(clean_kw)
 
-        st.session_state["sugerencias_tags"] = sugerencias_web
+        if not sugerencias_web and titulo:
+            sugerencias_web = extraer_palabras_clave_texto(titulo)
+
+        st.session_state["sugerencias_tags"] = sugerencias_web[:10]
 
         if titulo:
             st.session_state["in_titulo"] = titulo
@@ -857,6 +978,33 @@ def procesar_pdf_con_grobid(archivo_pdf_bytes):
         url = ""
         if doi_node is not None and doi_node.text:
             url = f"https://doi.org/{doi_node.text.strip()}"
+
+        # Extracción de sugerencias de TAGS para PDF
+        sug_grobid = []
+        for kw_node in root.findall(
+            ".//tei:profileDesc/tei:textClass/tei:keywords/tei:term", ns
+        ):
+            if kw_node.text:
+                kw_es = traducir_al_espanol(kw_node.text.strip())
+                clean_kw = f"#{re.sub(r'[^\w]', '', kw_es).capitalize()}"
+                if clean_kw not in sug_grobid:
+                    sug_grobid.append(clean_kw)
+
+        abstract_node = root.find(".//tei:profileDesc/tei:abstract", ns)
+        abstract_txt = (
+            abstract_node.text.strip()
+            if abstract_node is not None and abstract_node.text
+            else ""
+        )
+
+        tags_de_texto = extraer_palabras_clave_texto(
+            f"{titulo} {abstract_txt}"
+        )
+        for t in tags_de_texto:
+            if t not in sug_grobid:
+                sug_grobid.append(t)
+
+        st.session_state["sugerencias_tags"] = sug_grobid[:10]
 
         if titulo:
             st.session_state["in_titulo"] = titulo
@@ -1005,6 +1153,11 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
             )
             anio = matches_anios[0] if matches_anios else ""
 
+            # Extraer TAGS automáticamente desde el contenido del PDF
+            st.session_state["sugerencias_tags"] = (
+                extraer_palabras_clave_texto(texto_completo[:1000])[:10]
+            )
+
             st.session_state["in_titulo"] = titulo
             st.session_state["in_autor"] = autor
             st.session_state["in_fuente"] = revista
@@ -1034,7 +1187,7 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
     st.subheader("1. Extraer datos automáticamente")
 
     input_busqueda = st.text_input(
-        "Pega una URL (YouTube/Revista web), código DOI o link:",
+        "Pega una URL (YouTube/Web), código DOI o número ISBN:",
         key="input_extraer",
         on_change=al_cambiar_input_extraer,
     )
@@ -1042,7 +1195,9 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
 
     with col_btn:
         if st.button(
-            "🔍 Extraer de URL/DOI", type="primary", key="btn_extraer_main"
+            "🔍 Extraer de URL/DOI/ISBN",
+            type="primary",
+            key="btn_extraer_main",
         ):
             if input_busqueda:
                 if (
@@ -1050,6 +1205,8 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
                     or "youtu.be" in input_busqueda
                 ):
                     exito, msg = extraer_datos_youtube(input_busqueda)
+                elif es_isbn(input_busqueda):
+                    exito, msg = extraer_datos_isbn(input_busqueda)
                 elif "10." in input_busqueda or "doi.org" in input_busqueda:
                     exito, msg = extraer_datos_doi(input_busqueda)
                 else:
@@ -1062,7 +1219,7 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
                     st.warning(msg)
                     st.rerun()
             else:
-                st.warning("Por favor ingresa una URL o DOI.")
+                st.warning("Por favor ingresa una URL, DOI o ISBN.")
 
     with col_file:
         archivo_pdf = st.file_uploader("Sube tu archivo PDF:", type=["pdf"])
@@ -1270,7 +1427,7 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
             by="autor_sort", ascending=True
         ).drop(columns=["autor_sort"])
 
-        with st.expander("🎛️️ Filtros de búsqueda y orden", expanded=True):
+        with st.expander("🎛 Filtros de búsqueda y orden", expanded=True):
             col_search, col_tipo = st.columns([2, 1])
             with col_search:
                 busqueda = st.text_input(
