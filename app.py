@@ -625,8 +625,96 @@ with tab2:
     st.subheader("🔍 Base de Datos de Fuentes Guardadas")
     df_citas = obtener_citas_db()
     
-    if not df_citas.empty:
-        busqueda = st.text_input("🔎 Buscar:", key="search_db")
+    if df_citas.empty:
+        st.info("Aún no has guardado ninguna cita. Genera una en la primera pestaña y haz clic en 'Guardar en Base de Datos'.")
+    else:
+        # 1. ORDENAR Y PREPARAR DATOS (APA 7 exige orden alfabético por autor)
+        # Reemplazamos valores nulos de autor por el título para un ordenamiento correcto
+        df_citas['autor_sort'] = df_citas['autor'].fillna(df_citas['titulo'])
+        df_ordenado = df_citas.sort_values(by="autor_sort", ascending=True).drop(columns=['autor_sort'])
+        
+        # 2. BARRA SUPERIOR: Métricas y Botones de Exportación
+        col_m, col_txt, col_csv = st.columns([2, 1, 1])
+        
+        with col_m:
+            st.metric("Total de fuentes", len(df_ordenado))
+            
+        # Preparar texto completo ordenado para descargar
+        bibliografia_completa = "\n\n".join(df_ordenado['Referencia APA 7'].dropna().tolist())
+        
+        with col_txt:
+            st.download_button(
+                label="📄 Exportar Lista (.TXT)",
+                data=bibliografia_completa,
+                file_name="bibliografia_apa7.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
+            
+        with col_csv:
+            csv_data = df_ordenado.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📊 Exportar Excel (.CSV)",
+                data=csv_data,
+                file_name="citas_respaldo.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+            
+        st.divider()
+        
+        # 3. FILTROS Y MODO DE VISTA
+        c_busq, c_vista = st.columns([3, 1])
+        with c_busq:
+            busqueda = st.text_input("🔎 Buscar por autor, título o año:", key="search_db")
+        with c_vista:
+            modo_vista = st.radio("Vista:", ["Tarjetas", "Tabla"], horizontal=True)
+            
+        # Aplicar filtro de búsqueda si existe
         if busqueda:
-            df_citas = df_citas[df_citas['titulo'].str.contains(busqueda, case=False, na=False) | df_citas['autor'].str.contains(busqueda, case=False, na=False)]
-        st.dataframe(df_citas, use_container_width=True)
+            mask = (
+                df_ordenado['titulo'].astype(str).str.contains(busqueda, case=False, na=False) |
+                df_ordenado['autor'].astype(str).str.contains(busqueda, case=False, na=False) |
+                df_ordenado['anio'].astype(str).str.contains(busqueda, case=False, na=False)
+            )
+            df_filtrado = df_ordenado[mask]
+        else:
+            df_filtrado = df_ordenado
+            
+        st.caption(f"Mostrando {len(df_filtrado)} de {len(df_citas)} fuentes guardadas.")
+        
+        # 4. RENDERIZADO DE FUENTES
+        if modo_vista == "Tabla":
+            st.dataframe(df_filtrado, use_container_width=True)
+            
+        else:  # Vista de Tarjetas (Optimizada para copiar y leer)
+            for _, row in df_filtrado.iterrows():
+                autor_head = row['autor'] if row['autor'] else "Sin autor"
+                anio_head = f"({row['anio']})" if row['anio'] else "(s. f.)"
+                titulo_head = row['titulo'][:50] + "..." if len(str(row['titulo'])) > 50 else row['titulo']
+                
+                expander_label = f"📖 {autor_head} {anio_head} — {titulo_head}"
+                
+                with st.expander(expander_label):
+                    col_info, col_del = st.columns([4, 1])
+                    
+                    with col_info:
+                        st.markdown("**Referencia APA 7:**")
+                        st.code(row['Referencia APA 7'], language=None)
+                        
+                        st.markdown("**Cita en texto:**")
+                        st.code(row['Cita en Texto'], language=None)
+                        
+                        if row['url']:
+                            st.caption(f"🔗 **Enlace:** [{row['url']}]({row['url']})")
+                            
+                    with col_del:
+                        st.write("")  # Espaciado visual
+                        if st.button("🗑️ Eliminar", key=f"del_{row['id']}", type="secondary"):
+                            conn = sqlite3.connect("fuentes_apa.db")
+                            c = conn.cursor()
+                            c.execute("DELETE FROM citas WHERE id = ?", (row['id'],))
+                            conn.commit()
+                            conn.close()
+                            st.toast("Fuente eliminada correctamente.", icon="🗑️")
+                            st.rerun()
