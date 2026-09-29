@@ -8,21 +8,21 @@ import pandas as pd
 import requests
 import streamlit as st
 import urllib3
+
 try:
     import isbnlib
     ISBNLIB_DISPONIBLE = True
 except ImportError:
     ISBNLIB_DISPONIBLE = False
+
 try:
     import yt_dlp
-
     YOUTUBE_DISPONIBLE = True
 except ImportError:
     YOUTUBE_DISPONIBLE = False
 
 try:
     import pdfplumber
-
     PDF_DISPONIBLE = True
 except ImportError:
     PDF_DISPONIBLE = False
@@ -30,14 +30,12 @@ except ImportError:
 try:
     from pdf2image import convert_from_bytes
     import pytesseract
-
     OCR_DISPONIBLE = True
 except ImportError:
     OCR_DISPONIBLE = False
 
 try:
     from bs4 import BeautifulSoup
-
     BS4_DISPONIBLE = True
 except ImportError:
     BS4_DISPONIBLE = False
@@ -76,10 +74,8 @@ def es_isbn(texto):
     """Verifica si la cadena contiene un formato ISBN-10 o ISBN-13 (con o sin guiones)."""
     if not texto:
         return False
-    # Extrae exclusivamente números y la letra X (ignora guiones, espacios y texto extra)
     clean = re.sub(r"[^\dX]", "", str(texto).upper())
     
-    # Valida la longitud exacta para ISBN-10 o ISBN-13
     if len(clean) == 10:
         return bool(re.match(r"^\d{9}[\dX]$", clean))
     elif len(clean) == 13:
@@ -88,122 +84,19 @@ def es_isbn(texto):
 
 # --- LISTA DE PALABRAS A IGNORAR (STOPWORDS) PARA ETIQUETAS ---
 STOPWORDS = {
-    "de",
-    "la",
-    "que",
-    "el",
-    "en",
-    "y",
-    "a",
-    "los",
-    "del",
-    "se",
-    "las",
-    "por",
-    "un",
-    "para",
-    "con",
-    "no",
-    "una",
-    "su",
-    "al",
-    "lo",
-    "como",
-    "mas",
-    "más",
-    "pero",
-    "sus",
-    "le",
-    "ya",
-    "o",
-    "este",
-    "sí",
-    "porque",
-    "esta",
-    "entre",
-    "cuando",
-    "muy",
-    "sin",
-    "sobre",
-    "también",
-    "me",
-    "hasta",
-    "hay",
-    "donde",
-    "quien",
-    "desde",
-    "todo",
-    "nos",
-    "durante",
-    "todos",
-    "uno",
-    "les",
-    "ni",
-    "contra",
-    "otros",
-    "ese",
-    "eso",
-    "ante",
-    "ellos",
-    "e",
-    "esto",
-    "mí",
-    "antes",
-    "algunos",
-    "qué",
-    "unos",
-    "yo",
-    "otro",
-    "otras",
-    "otra",
-    "él",
-    "tanto",
-    "esa",
-    "estos",
-    "mucho",
-    "quienes",
-    "nada",
-    "muchos",
-    "cual",
-    "poco",
-    "ella",
-    "estar",
-    "estas",
-    "algunas",
-    "algo",
-    "nosotros",
-    "mi",
-    "mis",
-    "tú",
-    "te",
-    "ti",
-    "tu",
-    "tus",
-    "video",
-    "canal",
-    "suscribete",
-    "suscríbete",
-    "oficial",
-    "completo",
-    "link",
-    "links",
-    "redes",
-    "sociales",
-    "instagram",
-    "facebook",
-    "twitter",
-    "youtube",
-    "gracias",
-    "bienvenidos",
-    "hola",
-    "http",
-    "https",
-    "com",
-    "www",
-    "isbn",
-    "edition",
-    "edicion",
-    "editorial",
+    "de", "la", "que", "el", "en", "y", "a", "los", "del", "se", "las", "por",
+    "un", "para", "con", "no", "una", "su", "al", "lo", "como", "mas", "más",
+    "pero", "sus", "le", "ya", "o", "este", "sí", "porque", "esta", "entre",
+    "cuando", "muy", "sin", "sobre", "también", "me", "hasta", "hay", "donde",
+    "quien", "desde", "todo", "nos", "durante", "todos", "uno", "les", "ni",
+    "contra", "otros", "ese", "eso", "ante", "ellos", "e", "esto", "mí",
+    "antes", "algunos", "qué", "unos", "yo", "otro", "otras", "otra", "él",
+    "tanto", "esa", "estos", "mucho", "quienes", "nada", "muchos", "cual",
+    "poco", "ella", "estar", "estas", "algunas", "algo", "nosotros", "mi",
+    "mis", "tú", "te", "ti", "tu", "tus", "video", "canal", "suscribete",
+    "suscríbete", "oficial", "completo", "link", "links", "redes", "sociales",
+    "instagram", "facebook", "twitter", "youtube", "gracias", "bienvenidos",
+    "hola", "http", "https", "com", "www", "isbn", "edition", "edicion", "editorial"
 }
 
 
@@ -250,9 +143,7 @@ if st.query_params.get("auth") == "CypherOK":
 
 if not st.session_state["autenticado"]:
     st.title("🔒 Acceso Restringido")
-    st.write(
-        "Ingresa la clave de acceso para utilizar el organizador de fuentes."
-    )
+    st.write("Ingresa la clave de acceso para utilizar el organizador de fuentes.")
 
     clave_ingresada = st.text_input("Contraseña:", type="password")
 
@@ -310,51 +201,28 @@ init_db()
 
 
 def guardar_cita_db(
-    autor,
-    anio,
-    titulo,
-    fuente,
-    url,
-    cita_in_text,
-    cita_apa,
-    tipo_fuente="General",
-    es_favorito=0,
-    tags="",
+    autor, anio, titulo, fuente, url, cita_in_text, cita_apa,
+    tipo_fuente="General", es_favorito=0, tags=""
 ):
     conn = sqlite3.connect("fuentes_apa.db")
     c = conn.cursor()
-    c.execute(
-        """
+    c.execute("""
         INSERT INTO citas (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """,
-        (
-            autor,
-            anio,
-            titulo,
-            fuente,
-            url,
-            cita_in_text,
-            cita_apa,
-            tipo_fuente,
-            es_favorito,
-            tags,
-        ),
-    )
+    """, (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags))
     conn.commit()
     conn.close()
 
 
 def obtener_citas_db():
     conn = sqlite3.connect("fuentes_apa.db")
-    df = pd.read_sql_query(
-        """SELECT id, autor, anio, titulo, fuente, url, 
+    df = pd.read_sql_query("""
+        SELECT id, autor, anio, titulo, fuente, url, 
                   cita_in_text AS 'Cita en Texto', 
                   cita_apa AS 'Referencia APA 7',
                   tipo_fuente, es_favorito, tags 
-           FROM citas ORDER BY id DESC""",
-        conn,
-    )
+           FROM citas ORDER BY id DESC
+    """, conn)
     conn.close()
     return df
 
@@ -391,7 +259,6 @@ if "pestana_activa" not in st.session_state:
 
 
 def limpiar_formulario():
-    """Limpia todos los datos ingresados en el formulario de creación."""
     st.session_state["in_autor"] = ""
     st.session_state["in_anio"] = ""
     st.session_state["in_titulo"] = ""
@@ -516,20 +383,80 @@ def procesar_autores_y_citas(autor_str, titulo_str, anio_str):
     return ref_autores, cita_parentetica, cita_narrativa, anio_ref
 
 
+# --- CAPA DE RESPALDO DE WEB SCRAPING PARA ISBN ---
+def extraer_datos_isbn_web(clean_isbn):
+    """Rescata metadatos haciendo web scraping en isbnsearch.org como método definitivo."""
+    if not BS4_DISPONIBLE:
+        return False
+
+    url = f"https://isbnsearch.org/isbn/{clean_isbn}"
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
+    }
+
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, "html.parser")
+
+            h1 = soup.find("h1")
+            if not h1:
+                return False
+            titulo = h1.get_text(strip=True)
+
+            bookinfo = soup.find("div", class_="bookinfo")
+            if not bookinfo:
+                return False
+
+            texto_info = bookinfo.get_text()
+
+            publisher_match = re.search(r"Publisher:\s*([^\n]+)", texto_info)
+            editorial = publisher_match.group(1).strip() if publisher_match else ""
+
+            date_match = re.search(r"Publication Date:\s*([^\n]+)", texto_info)
+            anio = ""
+            if date_match:
+                anio_txt = date_match.group(1)
+                anio_match = re.search(r"\b(19\d{2}|20[0-2]\d)\b", anio_txt)
+                if anio_match:
+                    anio = anio_match.group(0)
+
+            author_match = re.search(r"Author:\s*([^\n]+)", texto_info)
+            autor = author_match.group(1).strip() if author_match else ""
+
+            st.session_state["in_titulo"] = titulo
+            st.session_state["in_autor"] = autor
+            st.session_state["in_fuente"] = editorial
+            st.session_state["in_anio"] = anio
+            st.session_state["in_url"] = url
+            st.session_state["in_tipo_fuente"] = "Libro"
+            st.session_state["select_tipo_fuente"] = "Libro"
+
+            sug = extraer_palabras_clave_texto(titulo)
+            st.session_state["sugerencias_tags"] = sug[:10]
+
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
 def extraer_datos_isbn(isbn_input):
-    """Extrae metadatos de un libro usando isbnlib con múltiples motores de búsqueda."""
+    """Extrae metadatos de un libro usando isbnlib, Google Books y Web Scraping de respaldo."""
     st.session_state["sugerencias_tags"] = []
     clean_isbn = re.sub(r"[^\dX]", "", isbn_input.upper())
 
     if not clean_isbn:
         return False, "Formato de ISBN no válido."
 
-    # INTENTO 1: Usar isbnlib (Busca en Google, OpenLibrary, WikiData, etc.)
+    # CAPA 1: Usar isbnlib (Busca en Google Books, OpenLibrary, Wikidata, etc.)
     if ISBNLIB_DISPONIBLE:
         try:
-            # isbnlib.meta intenta buscar en su motor por defecto (merge de varios)
             libro = isbnlib.meta(clean_isbn)
-            
             if libro:
                 st.session_state["in_titulo"] = libro.get("Title", "")
                 
@@ -548,7 +475,6 @@ def extraer_datos_isbn(isbn_input):
                 st.session_state["in_anio"] = libro.get("Year", "")
                 st.session_state["in_fuente"] = libro.get("Publisher", "")
                 st.session_state["in_url"] = f"https://isbnsearch.org/isbn/{clean_isbn}"
-                
                 st.session_state["in_tipo_fuente"] = "Libro"
                 st.session_state["select_tipo_fuente"] = "Libro"
                 
@@ -556,12 +482,11 @@ def extraer_datos_isbn(isbn_input):
                 st.session_state["sugerencias_tags"] = sugerencias[:10]
                 
                 return True, "¡Metadatos extraídos con éxito mediante isbnlib!"
-        except Exception as e:
-            pass # Si falla isbnlib, pasamos a los métodos de rescate directos
+        except Exception:
+            pass
 
-    # INTENTO 2 y 3: Tus métodos originales (Google Books directo y Open Library)
-    headers = {"User-Agent": "OrganizadorAPA_App/1.0 (Contacto: app@localhost.com)"}
-
+    # CAPA 2: Google Books API Directo
+    headers = {"User-Agent": "OrganizadorAPA_App/1.0"}
     try:
         url_gb = f"https://www.googleapis.com/books/v1/volumes?q=isbn:{clean_isbn}"
         res_gb = requests.get(url_gb, headers=headers, timeout=10)
@@ -581,7 +506,12 @@ def extraer_datos_isbn(isbn_input):
     except Exception:
         pass
 
-    return False, "No se encontraron registros para este ISBN en ninguna base de datos pública."
+    # CAPA 3: Web Scraping de Rescate (ISBNSearch)
+    if extraer_datos_isbn_web(clean_isbn):
+        return True, "¡Metadatos del libro extraídos mediante Web Scraping!"
+
+    return False, "No se encontraron registros para este ISBN en ninguna fuente disponible."
+
 
 def extraer_datos_doi(doi_input):
     st.session_state["sugerencias_tags"] = []
@@ -664,18 +594,9 @@ def extraer_datos_youtube(url):
             raw_date = info.get("upload_date", "")
             if raw_date and len(raw_date) == 8:
                 meses = {
-                    "01": "enero",
-                    "02": "febrero",
-                    "03": "marzo",
-                    "04": "abril",
-                    "05": "mayo",
-                    "06": "junio",
-                    "07": "julio",
-                    "08": "agosto",
-                    "09": "septiembre",
-                    "10": "octubre",
-                    "11": "noviembre",
-                    "12": "diciembre",
+                    "01": "enero", "02": "febrero", "03": "marzo", "04": "abril",
+                    "05": "mayo", "06": "junio", "07": "julio", "08": "agosto",
+                    "09": "septiembre", "10": "octubre", "11": "noviembre", "12": "diciembre",
                 }
                 st.session_state["in_anio"] = (
                     f"{raw_date[:4]}, {str(int(raw_date[6:8]))} de"
@@ -688,7 +609,6 @@ def extraer_datos_youtube(url):
             st.session_state["select_tipo_fuente"] = "Video / Multimedia"
 
             sugerencias = []
-
             categories = info.get("categories", []) or []
             for cat in categories:
                 cat_es = traducir_al_espanol(cat)
@@ -737,10 +657,7 @@ def extraer_datos_web(url):
         )
 
         if response.status_code != 200:
-            return (
-                False,
-                f"Servidor web no respondió (Código HTTP: {response.status_code}).",
-            )
+            return False, f"Servidor web no respondió (Código HTTP: {response.status_code})."
 
         response.encoding = response.apparent_encoding or "utf-8"
         soup = BeautifulSoup(response.text, "html.parser")
@@ -761,22 +678,12 @@ def extraer_datos_web(url):
                         if isinstance(item, dict):
                             tipo = item.get("@type", "")
                             if tipo in [
-                                "Article",
-                                "NewsArticle",
-                                "BlogPosting",
-                                "WebPage",
-                            ] or (
-                                isinstance(tipo, list) and "Article" in tipo
-                            ):
+                                "Article", "NewsArticle", "BlogPosting", "WebPage"
+                            ] or (isinstance(tipo, list) and "Article" in tipo):
                                 info_autor = item.get("author")
-                                if (
-                                    isinstance(info_autor, list)
-                                    and info_autor
-                                ):
+                                if isinstance(info_autor, list) and info_autor:
                                     info_autor = info_autor[0]
-                                if isinstance(
-                                    info_autor, dict
-                                ) and info_autor.get("name"):
+                                if isinstance(info_autor, dict) and info_autor.get("name"):
                                     autores.append(info_autor["name"])
                                 elif isinstance(info_autor, str):
                                     autores.append(info_autor)
@@ -799,21 +706,15 @@ def extraer_datos_web(url):
         if not autores:
             tags_autores = soup.find_all(
                 "meta",
-                attrs={
-                    "name": re.compile(r"citation_author|dc\.creator", re.I)
-                },
-            ) or soup.find_all(
-                "meta", attrs={"name": re.compile(r"author", re.I)}
-            )
+                attrs={"name": re.compile(r"citation_author|dc\.creator", re.I)},
+            ) or soup.find_all("meta", attrs={"name": re.compile(r"author", re.I)})
             for tag in tags_autores:
                 if tag.get("content") and tag["content"].strip() not in autores:
                     autores.append(tag["content"].strip())
 
         tag_fuente = soup.find(
             "meta",
-            attrs={
-                "name": re.compile(r"citation_journal_title|dc\.source", re.I)
-            },
+            attrs={"name": re.compile(r"citation_journal_title|dc\.source", re.I)},
         ) or soup.find("meta", attrs={"property": "og:site_name"})
         if tag_fuente and tag_fuente.get("content"):
             fuente = tag_fuente["content"].strip()
@@ -823,30 +724,19 @@ def extraer_datos_web(url):
                 "meta",
                 attrs={
                     "name": re.compile(
-                        r"citation_publication_date|citation_date|dc\.date",
-                        re.I,
+                        r"citation_publication_date|citation_date|dc\.date", re.I
                     )
                 },
-            ) or soup.find(
-                "meta", attrs={"property": "article:published_time"}
-            )
+            ) or soup.find("meta", attrs={"property": "article:published_time"})
             if tag_fecha and tag_fecha.get("content"):
-                match_anio = re.search(
-                    r"\b(19\d{2}|20[0-2]\d)\b", tag_fecha["content"]
-                )
+                match_anio = re.search(r"\b(19\d{2}|20[0-2]\d)\b", tag_fecha["content"])
                 if match_anio:
                     anio = match_anio.group(0)
 
         sugerencias_web = []
-        meta_kw = soup.find(
-            "meta", attrs={"name": re.compile(r"keywords", re.I)}
-        )
+        meta_kw = soup.find("meta", attrs={"name": re.compile(r"keywords", re.I)})
         if meta_kw and meta_kw.get("content"):
-            kws = [
-                k.strip()
-                for k in meta_kw["content"].split(",")
-                if len(k.strip()) > 2
-            ]
+            kws = [k.strip() for k in meta_kw["content"].split(",") if len(k.strip()) > 2]
             for kw in kws[:6]:
                 kw_es = traducir_al_espanol(kw)
                 clean_kw = f"#{re.sub(r'[^\w]', '', kw_es).capitalize()}"
@@ -873,11 +763,7 @@ def extraer_datos_web(url):
         if titulo or autores:
             return True, "¡Metadatos del sitio web extraídos con éxito!"
         else:
-            return (
-                False,
-                "La página cargó pero no expuso metadatos estándar. Completa"
-                " los campos faltantes manualmente.",
-            )
+            return False, "La página cargó pero no expuso metadatos estándar. Completa los campos faltantes manualmente."
 
     except Exception as e:
         return False, f"Error al acceder a la página web: {str(e)}"
@@ -889,26 +775,17 @@ def procesar_pdf_con_grobid(archivo_pdf_bytes):
         files = {"input": ("documento.pdf", archivo_pdf_bytes, "application/pdf")}
         data = {"consolidateHeader": "1"}
 
-        response = requests.post(
-            GROBID_URL, files=files, data=data, timeout=25
-        )
+        response = requests.post(GROBID_URL, files=files, data=data, timeout=25)
 
         if response.status_code != 200:
-            return (
-                False,
-                f"Servidor GROBID responde con código {response.status_code}.",
-            )
+            return False, f"Servidor GROBID responde con código {response.status_code}."
 
         xml_data = response.text
         root = ET.fromstring(xml_data)
         ns = {"tei": "http://www.tei-c.org/ns/1.0"}
 
         title_node = root.find(".//tei:titleStmt/tei:title", ns)
-        titulo = (
-            title_node.text.strip()
-            if title_node is not None and title_node.text
-            else ""
-        )
+        titulo = title_node.text.strip() if title_node is not None and title_node.text else ""
 
         autores_list = []
         for author in root.findall(".//tei:analytic/tei:author", ns):
@@ -916,24 +793,14 @@ def procesar_pdf_con_grobid(archivo_pdf_bytes):
             if pers is not None:
                 surname = pers.find("tei:surname", ns)
                 forename = pers.find("tei:forename", ns)
-                ap = (
-                    surname.text.strip()
-                    if surname is not None and surname.text
-                    else ""
-                )
-                nom = (
-                    forename.text.strip()[0] + "."
-                    if forename is not None and forename.text
-                    else ""
-                )
+                ap = surname.text.strip() if surname is not None and surname.text else ""
+                nom = forename.text.strip()[0] + "." if forename is not None and forename.text else ""
                 if ap:
                     autores_list.append(f"{ap}, {nom}" if nom else ap)
 
         autores = ", ".join(autores_list)
 
-        date_node = root.find(
-            ".//tei:publicationStmt/tei:date", ns
-        ) or root.find(".//tei:monogr/tei:imprint/tei:date", ns)
+        date_node = root.find(".//tei:publicationStmt/tei:date", ns) or root.find(".//tei:monogr/tei:imprint/tei:date", ns)
         anio = ""
         if date_node is not None:
             anio_val = date_node.get("when", date_node.text or "")
@@ -942,22 +809,15 @@ def procesar_pdf_con_grobid(archivo_pdf_bytes):
                 anio = match.group(0)
 
         journal_node = root.find(".//tei:monogr/tei:title", ns)
-        fuente = (
-            journal_node.text.strip()
-            if journal_node is not None and journal_node.text
-            else ""
-        )
+        fuente = journal_node.text.strip() if journal_node is not None and journal_node.text else ""
 
         doi_node = root.find('.//tei:idno[@type="DOI"]', ns)
         url = ""
         if doi_node is not None and doi_node.text:
             url = f"https://doi.org/{doi_node.text.strip()}"
 
-        # Extracción de sugerencias de TAGS para PDF
         sug_grobid = []
-        for kw_node in root.findall(
-            ".//tei:profileDesc/tei:textClass/tei:keywords/tei:term", ns
-        ):
+        for kw_node in root.findall(".//tei:profileDesc/tei:textClass/tei:keywords/tei:term", ns):
             if kw_node.text:
                 kw_es = traducir_al_espanol(kw_node.text.strip())
                 clean_kw = f"#{re.sub(r'[^\w]', '', kw_es).capitalize()}"
@@ -965,15 +825,9 @@ def procesar_pdf_con_grobid(archivo_pdf_bytes):
                     sug_grobid.append(clean_kw)
 
         abstract_node = root.find(".//tei:profileDesc/tei:abstract", ns)
-        abstract_txt = (
-            abstract_node.text.strip()
-            if abstract_node is not None and abstract_node.text
-            else ""
-        )
+        abstract_txt = abstract_node.text.strip() if abstract_node is not None and abstract_node.text else ""
 
-        tags_de_texto = extraer_palabras_clave_texto(
-            f"{titulo} {abstract_txt}"
-        )
+        tags_de_texto = extraer_palabras_clave_texto(f"{titulo} {abstract_txt}")
         for t in tags_de_texto:
             if t not in sug_grobid:
                 sug_grobid.append(t)
@@ -996,10 +850,7 @@ def procesar_pdf_con_grobid(archivo_pdf_bytes):
         if titulo or autores:
             return True, "¡Metadatos analizados con éxito mediante GROBID!"
         else:
-            return (
-                False,
-                "GROBID no detectó suficiente información en la portada.",
-            )
+            return False, "GROBID no detectó suficiente información en la portada."
 
     except Exception as e:
         return False, f"Error de conexión con GROBID: {str(e)}"
@@ -1025,9 +876,7 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
             if not palabras:
                 if OCR_DISPONIBLE:
                     st.session_state["in_titulo"] = "Documento Escaneado"
-                    st.session_state["in_fuente"] = (
-                        "Requiere revisión manual (OCR)"
-                    )
+                    st.session_state["in_fuente"] = "Requiere revisión manual (OCR)"
                     st.session_state["in_tipo_fuente"] = "Artículo de Revista"
                     st.session_state["select_tipo_fuente"] = "Artículo de Revista"
                     return True, "PDF escaneado. Se aplicó OCR básico."
@@ -1091,13 +940,10 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
                 texto = b["texto"]
                 if re.search(
                     r"http|@|vol|no\.|issn|doi|revista|recibido|aceptado",
-                    texto,
-                    re.IGNORECASE,
+                    texto, re.IGNORECASE,
                 ):
                     continue
-                if len(texto) > 3 and not re.search(
-                    r"\b(19\d{2}|20[0-3]\d)\b", texto
-                ):
+                if len(texto) > 3 and not re.search(r"\b(19\d{2}|20[0-3]\d)\b", texto):
                     autores_encontrados.append(texto)
                     if len(autores_encontrados) >= 2:
                         break
@@ -1108,26 +954,17 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
             lineas_revista = []
 
             for b in bloques:
-                es_encabezado_o_pie = (b["top"] < 100) or (
-                    b["bottom"] > (altura_pagina - 100)
-                )
+                es_encabezado_o_pie = (b["top"] < 100) or (b["bottom"] > (altura_pagina - 100))
                 if es_encabezado_o_pie and re.search(
-                    r"revista|iztacala|vol|no\.|issn|pp|\d{4}",
-                    b["texto"],
-                    re.IGNORECASE,
+                    r"revista|iztacala|vol|no\.|issn|pp|\d{4}", b["texto"], re.IGNORECASE
                 ):
                     lineas_revista.append(b["texto"])
 
-            revista = (
-                " - ".join(lineas_revista) if lineas_revista else "Documento PDF"
-            )
+            revista = " - ".join(lineas_revista) if lineas_revista else "Documento PDF"
 
-            matches_anios = re.findall(
-                r"\b(19\d{2}|20[0-2]\d)\b", texto_completo
-            )
+            matches_anios = re.findall(r"\b(19\d{2}|20[0-2]\d)\b", texto_completo)
             anio = matches_anios[0] if matches_anios else ""
 
-            # Extraer TAGS automáticamente desde el contenido del PDF
             st.session_state["sugerencias_tags"] = (
                 extraer_palabras_clave_texto(texto_completo[:1000])[:10]
             )
@@ -1174,10 +1011,7 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
             key="btn_extraer_main",
         ):
             if input_busqueda:
-                if (
-                    "youtube.com" in input_busqueda
-                    or "youtu.be" in input_busqueda
-                ):
+                if "youtube.com" in input_busqueda or "youtu.be" in input_busqueda:
                     exito, msg = extraer_datos_youtube(input_busqueda)
                 elif es_isbn(input_busqueda):
                     exito, msg = extraer_datos_isbn(input_busqueda)
@@ -1191,7 +1025,6 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
                     st.rerun()
                 else:
                     st.warning(msg)
-                    # LÍNEA DE st.rerun() ELIMINADA AQUÍ PARA MOSTRAR LOS ERRORES
             else:
                 st.warning("Por favor ingresa una URL, DOI o ISBN.")
 
@@ -1199,9 +1032,7 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
         archivo_pdf = st.file_uploader("Sube tu archivo PDF:", type=["pdf"])
         if archivo_pdf is not None:
             if st.button("🚀 Analizar PDF con GROBID", type="secondary"):
-                with st.spinner(
-                    "Procesando documento con el motor GROBID..."
-                ):
+                with st.spinner("Procesando documento con el motor GROBID..."):
                     bytes_data = archivo_pdf.read()
 
                     exito, msg = procesar_pdf_con_grobid(bytes_data)
@@ -1221,20 +1052,12 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
     autor_in = st.text_input("Autor(es) / Canal de YouTube", key="in_autor")
     anio_in = st.text_input("Año o Fecha", key="in_anio")
     titulo_in = st.text_input("Título del artículo o libro", key="in_titulo")
-    fuente_in = st.text_input(
-        "Revista / Editorial / Sitio Web", key="in_fuente"
-    )
-    url_in = st.text_input(
-        "URL / DOI", key="in_url", on_change=actualizar_tipo_al_tipear
-    )
+    fuente_in = st.text_input("Revista / Editorial / Sitio Web", key="in_fuente")
+    url_in = st.text_input("URL / DOI", key="in_url", on_change=actualizar_tipo_al_tipear)
 
     st.divider()
 
-    if st.button(
-        "📝 Generar Cita y Referencia APA 7",
-        key="btn_generar_cita",
-        type="primary",
-    ):
+    if st.button("📝 Generar Cita y Referencia APA 7", key="btn_generar_cita", type="primary"):
         ref_autores, cita_par, cita_nar, anio_ref = procesar_autores_y_citas(
             autor_in, titulo_in, anio_in
         )
@@ -1272,32 +1095,21 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
         referencia_final = " ".join(partes_ref)
         st.code(referencia_final, language=None)
 
-        st.session_state["last_cita_in_text"] = (
-            f"Par: {cita_par} | Nar: {cita_nar}"
-        )
+        st.session_state["last_cita_in_text"] = f"Par: {cita_par} | Nar: {cita_nar}"
         st.session_state["last_referencia_apa"] = referencia_final
 
     st.divider()
     st.subheader("📌 Guardar en la Biblioteca")
 
     opciones_tipo = [
-        "Artículo de Revista",
-        "Libro",
-        "Capítulo de Libro",
-        "Página Web",
-        "Tesis / Monografía",
-        "Video / Multimedia",
-        "Otro",
+        "Artículo de Revista", "Libro", "Capítulo de Libro",
+        "Página Web", "Tesis / Monografía", "Video / Multimedia", "Otro"
     ]
 
     c_tipo, c_fav = st.columns([3, 1])
 
     with c_tipo:
-        tipo_fuente = st.selectbox(
-            "Tipo de fuente:",
-            opciones_tipo,
-            key="select_tipo_fuente",
-        )
+        tipo_fuente = st.selectbox("Tipo de fuente:", opciones_tipo, key="select_tipo_fuente")
 
     with c_fav:
         st.write("")
@@ -1324,19 +1136,11 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
                     args=(tag,),
                 )
 
-    if st.button(
-        "💾 Guardar en Base de Datos",
-        key="btn_guardar_db",
-        type="primary",
-        use_container_width=True,
-    ):
+    if st.button("💾 Guardar en Base de Datos", key="btn_guardar_db", type="primary", use_container_width=True):
         if titulo_in.strip() or autor_in.strip():
-            if (
-                "last_referencia_apa" not in st.session_state
-                or "last_cita_in_text" not in st.session_state
-            ):
-                ref_autores, cita_par, cita_nar, anio_ref = (
-                    procesar_autores_y_citas(autor_in, titulo_in, anio_in)
+            if "last_referencia_apa" not in st.session_state or "last_cita_in_text" not in st.session_state:
+                ref_autores, cita_par, cita_nar, anio_ref = procesar_autores_y_citas(
+                    autor_in, titulo_in, anio_in
                 )
                 partes_ref = []
                 if ref_autores:
@@ -1367,24 +1171,15 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
             fav_int = 1 if es_fav else 0
 
             guardar_cita_db(
-                autor=autor_in,
-                anio=anio_in,
-                titulo=titulo_in,
-                fuente=fuente_in,
-                url=url_in,
-                cita_in_text=cita_in_text_val,
-                cita_apa=cita_apa_val,
-                tipo_fuente=tipo_fuente,
-                es_favorito=fav_int,
-                tags=tags_input.strip(),
+                autor=autor_in, anio=anio_in, titulo=titulo_in,
+                fuente=fuente_in, url=url_in, cita_in_text=cita_in_text_val,
+                cita_apa=cita_apa_val, tipo_fuente=tipo_fuente,
+                es_favorito=fav_int, tags=tags_input.strip(),
             )
 
-            # Limpiar formulario y cambiar de pestaña
             limpiar_formulario()
             st.session_state["pestana_activa"] = "🔍 Mis Citas Guardadas"
-            st.toast(
-                "¡Fuente guardada exitosamente! Redirigiendo...", icon="✅"
-            )
+            st.toast("¡Fuente guardada exitosamente! Redirigiendo...", icon="✅")
             st.rerun()
         else:
             st.error("Ingresa al menos el título o autor antes de guardar.")
@@ -1397,47 +1192,30 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
         st.info("Aún no has guardado ninguna cita en la base de datos.")
     else:
         df_citas["autor_sort"] = df_citas["autor"].fillna(df_citas["titulo"])
-        df_ordenado = df_citas.sort_values(
-            by="autor_sort", ascending=True
-        ).drop(columns=["autor_sort"])
+        df_ordenado = df_citas.sort_values(by="autor_sort", ascending=True).drop(columns=["autor_sort"])
 
         with st.expander("🎛 Filtros de búsqueda y orden", expanded=True):
             col_search, col_tipo = st.columns([2, 1])
             with col_search:
-                busqueda = st.text_input(
-                    "🔎 Búsqueda general (Autor, Título, Revista, Tags):",
-                    key="search_db",
-                )
+                busqueda = st.text_input("🔎 Búsqueda general (Autor, Título, Revista, Tags):", key="search_db")
             with col_tipo:
-                tipos_disponibles = ["Todos"] + sorted(
-                    list(df_ordenado["tipo_fuente"].dropna().unique())
-                )
+                tipos_disponibles = ["Todos"] + sorted(list(df_ordenado["tipo_fuente"].dropna().unique()))
                 filtro_tipo = st.selectbox("Tipo de fuente:", tipos_disponibles)
 
             col_fav, col_vista = st.columns([1, 1])
             with col_fav:
                 solo_favs = st.checkbox("⭐ Mostrar solo favoritos")
             with col_vista:
-                modo_vista = st.radio(
-                    "Vista:", ["Tarjetas", "Tabla"], horizontal=True
-                )
+                modo_vista = st.radio("Vista:", ["Tarjetas", "Tabla"], horizontal=True)
 
         df_filtrado = df_ordenado.copy()
 
         if busqueda:
             mask_busqueda = (
-                df_filtrado["titulo"]
-                .astype(str)
-                .str.contains(busqueda, case=False, na=False)
-                | df_filtrado["autor"]
-                .astype(str)
-                .str.contains(busqueda, case=False, na=False)
-                | df_filtrado["anio"]
-                .astype(str)
-                .str.contains(busqueda, case=False, na=False)
-                | df_filtrado["tags"]
-                .astype(str)
-                .str.contains(busqueda, case=False, na=False)
+                df_filtrado["titulo"].astype(str).str.contains(busqueda, case=False, na=False)
+                | df_filtrado["autor"].astype(str).str.contains(busqueda, case=False, na=False)
+                | df_filtrado["anio"].astype(str).str.contains(busqueda, case=False, na=False)
+                | df_filtrado["tags"].astype(str).str.contains(busqueda, case=False, na=False)
             )
             df_filtrado = df_filtrado[mask_busqueda]
 
@@ -1447,14 +1225,10 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
         if solo_favs:
             df_filtrado = df_filtrado[df_filtrado["es_favorito"] == 1]
 
-        st.caption(
-            f"Mostrando **{len(df_filtrado)}** de **{len(df_citas)}** fuentes."
-        )
+        st.caption(f"Mostrando **{len(df_filtrado)}** de **{len(df_citas)}** fuentes.")
 
         col_txt, col_csv = st.columns(2)
-        bibliografia_completa = "\n\n".join(
-            df_filtrado["Referencia APA 7"].dropna().tolist()
-        )
+        bibliografia_completa = "\n\n".join(df_filtrado["Referencia APA 7"].dropna().tolist())
 
         with col_txt:
             st.download_button(
@@ -1482,25 +1256,15 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
         else:
             for _, row in df_filtrado.iterrows():
                 es_fav = "⭐ " if row.get("es_favorito") == 1 else ""
-                autor_head = (
-                    row["autor"]
-                    if pd.notna(row["autor"]) and row["autor"]
-                    else "Sin autor"
-                )
-                anio_head = (
-                    f"({row['anio']})"
-                    if pd.notna(row["anio"]) and row["anio"]
-                    else "(s. f.)"
-                )
+                autor_head = row["autor"] if pd.notna(row["autor"]) and row["autor"] else "Sin autor"
+                anio_head = f"({row['anio']})" if pd.notna(row["anio"]) and row["anio"] else "(s. f.)"
                 titulo_head = (
                     str(row["titulo"])[:45] + "..."
                     if len(str(row["titulo"])) > 45
                     else str(row["titulo"])
                 )
 
-                expander_label = (
-                    f"{es_fav}📖 {autor_head} {anio_head} — {titulo_head}"
-                )
+                expander_label = f"{es_fav}📖 {autor_head} {anio_head} — {titulo_head}"
 
                 with st.expander(expander_label):
                     col_info, col_del = st.columns([4, 1])
@@ -1520,19 +1284,11 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
                             st.caption(f"🏷 **Tags:** `{row['tags']}`")
 
                     with col_del:
-                        if st.button(
-                            "🗑️ Eliminar",
-                            key=f"del_{row['id']}",
-                            type="secondary",
-                        ):
+                        if st.button("🗑️ Eliminar", key=f"del_{row['id']}", type="secondary"):
                             conn = sqlite3.connect("fuentes_apa.db")
                             c = conn.cursor()
-                            c.execute(
-                                "DELETE FROM citas WHERE id = ?", (row["id"],)
-                            )
+                            c.execute("DELETE FROM citas WHERE id = ?", (row["id"],))
                             conn.commit()
                             conn.close()
-                            st.toast(
-                                "Fuente eliminada correctamente.", icon="🗑️"
-                            )
+                            st.toast("Fuente eliminada correctamente.", icon="🗑️")
                             st.rerun()
