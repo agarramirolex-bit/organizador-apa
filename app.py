@@ -82,6 +82,7 @@ import streamlit as st
 def init_db():
     conn = sqlite3.connect("fuentes_apa.db")
     c = conn.cursor()
+    
     # Crear tabla si no existe
     c.execute('''CREATE TABLE IF NOT EXISTS citas (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,30 +98,13 @@ def init_db():
         tags TEXT DEFAULT ''
     )''')
     
-    # Migración automática de columnas para bases de datos existentes
+    # Migración automática de columnas
     columnas_nuevas = [
         ("tipo_fuente", "TEXT DEFAULT 'General'"),
         ("es_favorito", "INTEGER DEFAULT 0"),
         ("tags", "TEXT DEFAULT ''")
     ]
-    for col_nombre, col_tipo in columnas_nuevas:
-        try:
-            c.execute(f"ALTER TABLE citas ADD COLUMN {col_nombre} {col_tipo}")
-        except sqlite3.OperationalError:
-            pass  # La columna ya existe, no hace nada
-            
-    conn.commit()
-    conn.close()
-
-# Ejecutamos al inicio
-init_db()
     
-    # Migración automática de columnas para bases de datos existentes
-    columnas_nuevas = [
-        ("tipo_fuente", "TEXT DEFAULT 'General'"),
-        ("es_favorito", "INTEGER DEFAULT 0"),
-        ("tags", "TEXT DEFAULT ''")
-    ]
     for col_nombre, col_tipo in columnas_nuevas:
         try:
             c.execute(f"ALTER TABLE citas ADD COLUMN {col_nombre} {col_tipo}")
@@ -130,6 +114,8 @@ init_db()
     conn.commit()
     conn.close()
 
+# Ejecutar la función
+init_db()
 # Ejecutamos al inicio
 init_db()
 
