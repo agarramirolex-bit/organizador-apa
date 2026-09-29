@@ -71,27 +71,45 @@ if not st.session_state["autenticado"]:
 # --- CONFIGURACIÓN GROBID Y BASE DE DATOS ---
 GROBID_URL = "https://grobid.kermitt.org/api/processHeaderDocument"
 
+import sqlite3
+import pandas as pd
+import streamlit as st
+
 def init_db():
     conn = sqlite3.connect("fuentes_apa.db")
     c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS citas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            autor TEXT,
-            anio TEXT,
-            titulo TEXT,
-            fuente TEXT,
-            url TEXT,
-            cita_apa TEXT,
-            cita_in_text TEXT
-        )
-    ''')
-    try:
-        c.execute("ALTER TABLE citas ADD COLUMN cita_in_text TEXT")
-    except sqlite3.OperationalError:
-        pass
+    # Crear tabla si no existe
+    c.execute('''CREATE TABLE IF NOT EXISTS citas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        autor TEXT,
+        anio TEXT,
+        titulo TEXT,
+        fuente TEXT,
+        url TEXT,
+        cita_in_text TEXT,
+        cita_apa TEXT,
+        tipo_fuente TEXT DEFAULT 'General',
+        es_favorito INTEGER DEFAULT 0,
+        tags TEXT DEFAULT ''
+    )''')
+    
+    # Migración automática de columnas para bases de datos existentes
+    columnas_nuevas = [
+        ("tipo_fuente", "TEXT DEFAULT 'General'"),
+        ("es_favorito", "INTEGER DEFAULT 0"),
+        ("tags", "TEXT DEFAULT ''")
+    ]
+    for col_nombre, col_tipo in columnas_nuevas:
+        try:
+            c.execute(f"ALTER TABLE citas ADD COLUMN {col_nombre} {col_tipo}")
+        except sqlite3.OperationalError:
+            pass  # La columna ya existe, no hace nada
+            
     conn.commit()
     conn.close()
+
+# Ejecutamos al inicio
+init_db()
 
 def guardar_cita_db(autor, anio, titulo, fuente, url, cita_apa, cita_in_text):
     conn = sqlite3.connect("fuentes_apa.db")
