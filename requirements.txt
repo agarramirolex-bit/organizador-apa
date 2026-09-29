@@ -1,0 +1,8 @@
+streamlit
+requests
+yt-dlp
+pdfplumber
+pdf2image
+pytesseract
+beautifulsoup4
+pandas
