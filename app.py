@@ -517,33 +517,25 @@ def procesar_autores_y_citas(autor_str, titulo_str, anio_str):
 
 
 def extraer_datos_isbn(isbn_input):
-    """Extrae metadatos de un libro ingresando su código ISBN."""
+    """Extrae metadatos de un libro usando isbnlib con múltiples motores de búsqueda."""
     st.session_state["sugerencias_tags"] = []
     clean_isbn = re.sub(r"[^\dX]", "", isbn_input.upper())
 
     if not clean_isbn:
         return False, "Formato de ISBN no válido."
 
-    # NUEVO: Cabeceras HTTP para identificar la app y evitar bloqueos del servidor
-    headers = {"User-Agent": "OrganizadorAPA_App/1.0 (Contacto: app@localhost.com)"}
-
-    # Intento 1: API de Google Books
-    try:
-        url_gb = f"https://www.googleapis.com/books/v1/volumes?q=isbn:{clean_isbn}"
-        res_gb = requests.get(url_gb, headers=headers, timeout=10)
-        if res_gb.status_code == 200:
-            data = res_gb.json()
-            if data.get("totalItems", 0) > 0:
-                book = data["items"][0]["volumeInfo"]
-
-                titulo = book.get("title", "")
-                if book.get("subtitle"):
-                    titulo += f": {book.get('subtitle')}"
-                st.session_state["in_titulo"] = titulo
-
-                autores_raw = book.get("authors", [])
+    # INTENTO 1: Usar isbnlib (Busca en Google, OpenLibrary, WikiData, etc.)
+    if ISBNLIB_DISPONIBLE:
+        try:
+            # isbnlib.meta intenta buscar en su motor por defecto (merge de varios)
+            libro = isbnlib.meta(clean_isbn)
+            
+            if libro:
+                st.session_state["in_titulo"] = libro.get("Title", "")
+                
+                autores = libro.get("Authors", [])
                 autores_fmt = []
-                for a in autores_raw:
+                for a in autores:
                     partes = a.split(" ")
                     if len(partes) > 1:
                         apellido = partes[-1]
@@ -551,75 +543,45 @@ def extraer_datos_isbn(isbn_input):
                         autores_fmt.append(f"{apellido}, {inicial}")
                     else:
                         autores_fmt.append(a)
+                        
                 st.session_state["in_autor"] = ", ".join(autores_fmt)
-
-                pub_date = book.get("publishedDate", "")
-                st.session_state["in_anio"] = pub_date[:4] if pub_date else ""
-                st.session_state["in_fuente"] = book.get("publisher", "")
-                st.session_state["in_url"] = (
-                    f"https://isbnsearch.org/isbn/{clean_isbn}"
-                )
+                st.session_state["in_anio"] = libro.get("Year", "")
+                st.session_state["in_fuente"] = libro.get("Publisher", "")
+                st.session_state["in_url"] = f"https://isbnsearch.org/isbn/{clean_isbn}"
+                
                 st.session_state["in_tipo_fuente"] = "Libro"
                 st.session_state["select_tipo_fuente"] = "Libro"
-
-                sugerencias = []
-                for cat in book.get("categories", []):
-                    cat_es = traducir_al_espanol(cat)
-                    tag_cat = f"#{re.sub(r'[^\w]', '', cat_es).capitalize()}"
-                    if tag_cat not in sugerencias:
-                        sugerencias.append(tag_cat)
-
-                desc = book.get("description", "")
-                tags_desc = extraer_palabras_clave_texto(f"{titulo} {desc}")
-                for t in tags_desc:
-                    if t not in sugerencias:
-                        sugerencias.append(t)
-
+                
+                sugerencias = extraer_palabras_clave_texto(libro.get("Title", ""))
                 st.session_state["sugerencias_tags"] = sugerencias[:10]
+                
+                return True, "¡Metadatos extraídos con éxito mediante isbnlib!"
+        except Exception as e:
+            pass # Si falla isbnlib, pasamos a los métodos de rescate directos
+
+    # INTENTO 2 y 3: Tus métodos originales (Google Books directo y Open Library)
+    headers = {"User-Agent": "OrganizadorAPA_App/1.0 (Contacto: app@localhost.com)"}
+
+    try:
+        url_gb = f"https://www.googleapis.com/books/v1/volumes?q=isbn:{clean_isbn}"
+        res_gb = requests.get(url_gb, headers=headers, timeout=10)
+        if res_gb.status_code == 200:
+            data = res_gb.json()
+            if data.get("totalItems", 0) > 0:
+                book = data["items"][0]["volumeInfo"]
+                st.session_state["in_titulo"] = book.get("title", "")
+                autores_raw = book.get("authors", [])
+                st.session_state["in_autor"] = ", ".join(autores_raw)
+                st.session_state["in_anio"] = book.get("publishedDate", "")[:4]
+                st.session_state["in_fuente"] = book.get("publisher", "")
+                st.session_state["in_url"] = f"https://isbnsearch.org/isbn/{clean_isbn}"
+                st.session_state["in_tipo_fuente"] = "Libro"
+                st.session_state["select_tipo_fuente"] = "Libro"
                 return True, "¡Metadatos del libro extraídos vía Google Books!"
     except Exception:
         pass
 
-    # Intento 2: Fallback a Open Library API
-    try:
-        url_ol = f"https://openlibrary.org/api/books?bibkeys=ISBN:{clean_isbn}&jscmd=data&format=json"
-        res_ol = requests.get(url_ol, headers=headers, timeout=10)
-        if res_ol.status_code == 200:
-            data_ol = res_ol.json()
-            key = f"ISBN:{clean_isbn}"
-            if key in data_ol:
-                book = data_ol[key]
-                st.session_state["in_titulo"] = book.get("title", "")
-
-                authors = [
-                    a.get("name", "") for a in book.get("authors", [])
-                ]
-                st.session_state["in_autor"] = ", ".join(authors)
-
-                pub_date = book.get("publish_date", "")
-                st.session_state["in_anio"] = (
-                    pub_date[-4:] if len(pub_date) >= 4 else ""
-                )
-
-                publishers = [
-                    p.get("name", "") for p in book.get("publishers", [])
-                ]
-                st.session_state["in_fuente"] = ", ".join(publishers)
-
-                st.session_state["in_url"] = book.get(
-                    "url", f"https://openlibrary.org/isbn/{clean_isbn}"
-                )
-                st.session_state["in_tipo_fuente"] = "Libro"
-                st.session_state["select_tipo_fuente"] = "Libro"
-
-                sug = extraer_palabras_clave_texto(book.get("title", ""))
-                st.session_state["sugerencias_tags"] = sug[:10]
-                return True, "¡Metadatos del libro extraídos vía Open Library!"
-    except Exception as e:
-        return False, f"Error de conexión al consultar ISBN: {str(e)}"
-
-    return False, "No se encontraron registros para el ISBN proporcionado."
-
+    return False, "No se encontraron registros para este ISBN en ninguna base de datos pública."
 
 def extraer_datos_doi(doi_input):
     st.session_state["sugerencias_tags"] = []
