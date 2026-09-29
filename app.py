@@ -69,13 +69,18 @@ def traducir_al_espanol(texto):
 
 # --- HELPER ISBN ---
 def es_isbn(texto):
-    """Verifica si la cadena ingresada corresponde a un formato ISBN-10 o ISBN-13."""
-    clean = re.sub(r"[\s\-]", "", texto)
-    return (
-        bool(re.match(r"^(978|979)?\d{9}[\dX]$", clean, re.IGNORECASE))
-        and len(clean) in [10, 13]
-    )
-
+    """Verifica si la cadena contiene un formato ISBN-10 o ISBN-13 (con o sin guiones)."""
+    if not texto:
+        return False
+    # Extrae exclusivamente números y la letra X (ignora guiones, espacios y texto extra)
+    clean = re.sub(r"[^\dX]", "", str(texto).upper())
+    
+    # Valida la longitud exacta para ISBN-10 o ISBN-13
+    if len(clean) == 10:
+        return bool(re.match(r"^\d{9}[\dX]$", clean))
+    elif len(clean) == 13:
+        return bool(re.match(r"^(978|979)\d{10}$", clean))
+    return False
 
 # --- LISTA DE PALABRAS A IGNORAR (STOPWORDS) PARA ETIQUETAS ---
 STOPWORDS = {
