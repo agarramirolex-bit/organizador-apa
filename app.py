@@ -194,24 +194,17 @@ def extraer_palabras_clave_texto(texto):
 
     sugerencias = []
 
-    # 1. Hashtags explícitos (#Psychology -> #Psicologia)
     hashtags_directos = re.findall(r"#(\w+)", texto)
     for h in hashtags_directos:
         h_traducido = traducir_al_espanol(h)
-        clean_h = (
-            f"#{re.sub(r'[^\w]', '', h_traducido).capitalize()}"
-        )
+        clean_h = f"#{re.sub(r'[^\w]', '', h_traducido).capitalize()}"
         if clean_h not in sugerencias:
             sugerencias.append(clean_h)
 
-    # 2. Palabras relevantes del título o descripción (>3 letras y no stopwords)
     palabras = re.findall(r"\b[a-zA-ZáéíóúÁÉÍÓÚñÑ]{4,}\b", texto)
     palabras_filtradas = []
     for p in palabras:
-        if (
-            p.lower() not in STOPWORDS
-            and p.lower() not in palabras_filtradas
-        ):
+        if p.lower() not in STOPWORDS and p.lower() not in palabras_filtradas:
             palabras_filtradas.append(p)
             if len(palabras_filtradas) >= 10:
                 break
@@ -371,9 +364,30 @@ if "in_tags" not in st.session_state:
     st.session_state["in_tags"] = ""
 if "sugerencias_tags" not in st.session_state:
     st.session_state["sugerencias_tags"] = []
+if "input_extraer" not in st.session_state:
+    st.session_state["input_extraer"] = ""
+if "pestana_activa" not in st.session_state:
+    st.session_state["pestana_activa"] = "➕ Crear Cita y Referencia"
 
 
-# Callback seguro para agregar sugerencias sin error de renderizado
+def limpiar_formulario():
+    """Limpia todos los datos ingresados en el formulario de creación."""
+    st.session_state["in_autor"] = ""
+    st.session_state["in_anio"] = ""
+    st.session_state["in_titulo"] = ""
+    st.session_state["in_fuente"] = ""
+    st.session_state["in_url"] = ""
+    st.session_state["in_tags"] = ""
+    st.session_state["input_extraer"] = ""
+    st.session_state["sugerencias_tags"] = []
+    st.session_state["in_tipo_fuente"] = "Artículo de Revista"
+    st.session_state["select_tipo_fuente"] = "Artículo de Revista"
+    if "last_referencia_apa" in st.session_state:
+        del st.session_state["last_referencia_apa"]
+    if "last_cita_in_text" in st.session_state:
+        del st.session_state["last_cita_in_text"]
+
+
 def agregar_tag_sugerido(tag_a_agregar):
     actuales = [
         t.strip()
@@ -411,17 +425,7 @@ def actualizar_tipo_al_tipear():
 
 def al_cambiar_input_extraer():
     if not st.session_state.get("input_extraer", "").strip():
-        st.session_state["in_autor"] = ""
-        st.session_state["in_anio"] = ""
-        st.session_state["in_titulo"] = ""
-        st.session_state["in_fuente"] = ""
-        st.session_state["in_url"] = ""
-        st.session_state["in_tags"] = ""
-        st.session_state["sugerencias_tags"] = []
-        st.session_state["in_tipo_fuente"] = "Artículo de Revista"
-        st.session_state["select_tipo_fuente"] = "Artículo de Revista"
-        if "last_referencia_apa" in st.session_state:
-            del st.session_state["last_referencia_apa"]
+        limpiar_formulario()
     else:
         actualizar_tipo_al_tipear()
 
@@ -594,10 +598,8 @@ def extraer_datos_youtube(url):
             st.session_state["in_tipo_fuente"] = "Video / Multimedia"
             st.session_state["select_tipo_fuente"] = "Video / Multimedia"
 
-            # --- EXTRACCIÓN Y TRADUCCIÓN DE ETIQUETAS ---
             sugerencias = []
 
-            # 1. Categoría traducida
             categories = info.get("categories", []) or []
             for cat in categories:
                 cat_es = traducir_al_espanol(cat)
@@ -605,7 +607,6 @@ def extraer_datos_youtube(url):
                 if tag_cat not in sugerencias:
                     sugerencias.append(tag_cat)
 
-            # 2. Etiquetas del autor traducidas
             yt_tags = info.get("tags", []) or []
             for tag in yt_tags[:6]:
                 tag_es = traducir_al_espanol(tag)
@@ -613,7 +614,6 @@ def extraer_datos_youtube(url):
                 if len(clean_tag) > 2 and f"#{clean_tag}" not in sugerencias:
                     sugerencias.append(f"#{clean_tag}")
 
-            # 3. Análisis de palabras clave en Título + Descripción
             texto_para_analizar = f"{titulo_raw} {descripcion_raw[:500]}"
             tags_extraidos = extraer_palabras_clave_texto(texto_para_analizar)
 
@@ -1022,10 +1022,18 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
         return False, f"Error al procesar la estructura del PDF: {str(e)}"
 
 
-# --- PESTAÑAS DE LA APLICACIÓN ---
-tab1, tab2 = st.tabs(["➕ Crear Cita y Referencia", "🔍 Mis Citas Guardadas"])
+# --- CONTROL DE NAVEGACIÓN DE PESTAÑAS ---
+opcion_pestana = st.radio(
+    "Navegación",
+    ["➕ Crear Cita y Referencia", "🔍 Mis Citas Guardadas"],
+    horizontal=True,
+    key="pestana_activa",
+    label_visibility="collapsed",
+)
 
-with tab1:
+st.divider()
+
+if opcion_pestana == "➕ Crear Cita y Referencia":
     st.subheader("1. Extraer datos automáticamente")
 
     input_busqueda = st.text_input(
@@ -1242,11 +1250,18 @@ with tab1:
                 es_favorito=fav_int,
                 tags=tags_input.strip(),
             )
-            st.success("¡Fuente guardada exitosamente en tu biblioteca!")
+
+            # Limpiar formulario y cambiar de pestaña
+            limpiar_formulario()
+            st.session_state["pestana_activa"] = "🔍 Mis Citas Guardadas"
+            st.toast(
+                "¡Fuente guardada exitosamente! Redirigiendo...", icon="✅"
+            )
+            st.rerun()
         else:
             st.error("Ingresa al menos el título o autor antes de guardar.")
 
-with tab2:
+elif opcion_pestana == "🔍 Mis Citas Guardadas":
     st.subheader("🔍 Biblioteca de Fuentes Guardadas")
     df_citas = obtener_citas_db()
 
