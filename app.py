@@ -119,13 +119,13 @@ init_db()
 # Ejecutamos al inicio
 init_db()
 
-def guardar_cita_db(autor, anio, titulo, fuente, url, cita_apa, cita_in_text):
+def guardar_cita_db(autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente="General", es_favorito=0, tags=""):
     conn = sqlite3.connect("fuentes_apa.db")
     c = conn.cursor()
-    c.execute('''
-        INSERT INTO citas (autor, anio, titulo, fuente, url, cita_apa, cita_in_text)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (autor, anio, titulo, fuente, url, cita_apa, cita_in_text))
+    c.execute("""
+        INSERT INTO citas (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags))
     conn.commit()
     conn.close()
 
@@ -644,7 +644,46 @@ with tab1:
         
         st.session_state["last_cita_in_text"] = f"Par: {cita_par} | Nar: {cita_nar}"
         st.session_state["last_referencia_apa"] = referencia_final
+st.divider()
+st.subheader("📌 Guardar en la Biblioteca")
 
+# 1. Nuevos campos de organización
+c_tipo, c_fav = st.columns([3, 1])
+
+with c_tipo:
+    tipo_fuente = st.selectbox(
+        "Tipo de fuente:",
+        ["Artículo de Revista", "Libro", "Capítulo de Libro", "Página Web", "Tesis / Monografía", "Video / Multimedia", "Otro"]
+    )
+
+with c_fav:
+    st.write("")  # Espaciado vertical
+    st.write("")
+    es_fav = st.checkbox("⭐ Marcar como favorito")
+
+tags_input = st.text_input(
+    "🏷️ Etiquetas / Tags (separadas por coma):",
+    placeholder="Ej: #MarcoTeorico, #Metodologia, #Capitulo1"
+)
+
+# 2. Botón de guardado actualizado
+if st.button("💾 Guardar en Base de Datos", type="primary", use_container_width=True):
+    # Convertimos el checkbox a entero (1 o 0)
+    fav_int = 1 if es_fav else 0
+    
+    guardar_cita_db(
+        autor=autor_resultado,          # Ajusta con el nombre de tu variable
+        anio=anio_resultado,            # Ajusta con el nombre de tu variable
+        titulo=titulo_resultado,        # Ajusta con el nombre de tu variable
+        fuente=fuente_resultado,        # Ajusta con el nombre de tu variable
+        url=url_resultado,              # Ajusta con el nombre de tu variable
+        cita_in_text=cita_texto_res,    # Ajusta con el nombre de tu variable
+        cita_apa=cita_apa_res,          # Ajusta con el nombre de tu variable
+        tipo_fuente=tipo_fuente,
+        es_favorito=fav_int,
+        tags=tags_input.strip()
+    )
+    st.success("¡Fuente guardada exitosamente en tu biblioteca!")
     if "last_referencia_apa" in st.session_state:
         if st.button("💾 Guardar en Base de Datos", key="btn_guardar"):
             if titulo_in.strip() or autor_in.strip():
