@@ -6,6 +6,7 @@ import pandas as pd
 import io
 import urllib3
 import json
+import xml.etree.ElementTree as ET
 
 # Desactivar advertencias de SSL no verificado si algún sitio académico las requiere
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -35,7 +36,31 @@ try:
 except ImportError:
     BS4_DISPONIBLE = False
 
+# Configuración de página
 st.set_page_config(page_title="Organizador APA 7 (Español)", page_icon="📚", layout="centered")
+
+# --- CONTROL DE ACCESO CON CONTRASEÑA ---
+CONTRASEÑA_CORRECTA = "Cypher"
+
+if "autenticado" not in st.session_state:
+    st.session_state["autenticado"] = False
+
+if not st.session_state["autenticado"]:
+    st.title("🔒 Acceso Restringido")
+    st.write("Ingresa la clave de acceso para utilizar el organizador de fuentes.")
+    clave_ingresada = st.text_input("Contraseña:", type="password")
+    
+    if st.button("Entrar", type="primary"):
+        if clave_ingresada == CONTRASEÑA_CORRECTA:
+            st.session_state["autenticado"] = True
+            st.rerun()
+        else:
+            st.error("Contraseña incorrecta. Inténtalo de nuevo.")
+            
+    st.stop()  # Detiene la ejecución aquí hasta que se autentique correctamente
+
+# --- CONFIGURACIÓN GROBID Y BASE DE DATOS ---
+GROBID_URL = "https://grobid.kermitt.org/api/processHeaderDocument"
 
 def init_db():
     conn = sqlite3.connect("fuentes_apa.db")
@@ -77,8 +102,9 @@ def obtener_citas_db():
 
 init_db()
 
+# --- INTERFAZ PRINCIPAL ---
 st.title("📚 Organizador de Fuentes y Generador APA 7")
-st.write("Extrae metadatos mediante DOI, YouTube, sitios web o escaneo de artículos PDF según las **normas APA 7.ª edición en español**.")
+st.write("Extrae metadatos mediante DOI, YouTube, sitios web o análisis GROBID de artículos PDF según las **normas APA 7.ª edición en español**.")
 
 if "in_autor" not in st.session_state: st.session_state["in_autor"] = ""
 if "in_anio" not in st.session_state: st.session_state["in_anio"] = ""
@@ -191,7 +217,6 @@ def extraer_datos_youtube(url):
         return True, "¡Metadatos de YouTube extraídos con éxito!"
     except Exception as e: return False, f"Error: {str(e)}"
 
-# --- EXTRACTOR WEB CON ANÁLISIS DE JSON-LD Y ENLACES ---
 def extraer_datos_web(url):
     if not BS4_DISPONIBLE:
         return False, "Falta instalar beautifulsoup4."
@@ -217,21 +242,17 @@ def extraer_datos_web(url):
         fuente = ""
         anio = ""
 
-        # --- FASE 1: Análisis de JSON-LD (Estructura para Google) ---
         scripts_jsonld = soup.find_all('script', type='application/ld+json')
         for script in scripts_jsonld:
             try:
                 if script.string:
                     data = json.loads(script.string)
-                    # A veces JSON-LD es una lista, a veces un diccionario
                     lista_datos = data if isinstance(data, list) else [data]
                     
                     for item in lista_datos:
                         if isinstance(item, dict):
                             tipo = item.get('@type', '')
-                            # Buscar en esquemas de artículos
                             if tipo in ['Article', 'NewsArticle', 'BlogPosting', 'WebPage'] or (isinstance(tipo, list) and 'Article' in tipo):
-                                # Extraer Autor
                                 info_autor = item.get('author')
                                 if isinstance(info_autor, list) and info_autor:
                                     info_autor = info_autor[0]
@@ -240,15 +261,11 @@ def extraer_datos_web(url):
                                 elif isinstance(info_autor, str):
                                     autores.append(info_autor)
                                 
-                                # Extraer Año
                                 if not anio and item.get('datePublished'):
                                     anio = item.get('datePublished')[:4]
             except:
                 continue
 
-        # --- FASE 2: Búsqueda tradicional (Si JSON-LD falla) ---
-        
-        # 1. TÍTULO
         tag_titulo = (soup.find('meta', attrs={'name': re.compile(r'citation_title|dc\.title', re.I)}) or
                       soup.find('meta', attrs={'property': 'og:title'}))
         if tag_titulo and tag_titulo.get('content'):
@@ -258,7 +275,6 @@ def extraer_datos_web(url):
         elif soup.title and soup.title.string:
             titulo = soup.title.string.strip()
 
-        # 2. AUTORES (Meta tags, Atributos rel y Clases)
         if not autores:
             tags_autores = (soup.find_all('meta', attrs={'name': re.compile(r'citation_author|dc\.creator', re.I)}) or
                             soup.find_all('meta', attrs={'name': re.compile(r'author', re.I)}))
@@ -267,7 +283,6 @@ def extraer_datos_web(url):
                     autores.append(tag['content'].strip())
 
         if not autores:
-            # Buscar explícitamente enlaces (a) que sean declarados como autores
             tags_rel = soup.find_all(attrs={"rel": re.compile(r"author", re.I)})
             for tag in tags_rel:
                 texto_autor = tag.get_text(strip=True)
@@ -275,26 +290,20 @@ def extraer_datos_web(url):
                     autores.append(texto_autor)
 
         if not autores:
-            # Buscar en clases que suelan contener al autor (ej. perfiles con hipervínculo)
             clases_autor = soup.find_all(class_=re.compile(r'author|autor|byline', re.I))
             for elem in clases_autor:
-                enlace = elem.find('a') # Dar prioridad al hipervínculo dentro del contenedor
+                enlace = elem.find('a')
                 texto_elem = enlace.get_text(strip=True) if enlace else elem.get_text(strip=True)
-                
-                # Limpiar textos como "Por: Juan Pérez" o "Escrito por:"
                 texto_elem = re.sub(r'^(Por|By|Escrito por|Redacción):\s*', '', texto_elem, flags=re.IGNORECASE)
-                
                 if 0 < len(texto_elem) < 50 and texto_elem not in autores:
                     autores.append(texto_elem)
                     break
 
-        # 3. REVISTA / FUENTE
         tag_fuente = (soup.find('meta', attrs={'name': re.compile(r'citation_journal_title|dc\.source', re.I)}) or
                       soup.find('meta', attrs={'property': 'og:site_name'}))
         if tag_fuente and tag_fuente.get('content'):
             fuente = tag_fuente['content'].strip()
 
-        # 4. AÑO
         if not anio:
             tag_fecha = (soup.find('meta', attrs={'name': re.compile(r'citation_publication_date|citation_date|dc\.date', re.I)}) or
                          soup.find('meta', attrs={'property': 'article:published_time'}))
@@ -308,7 +317,6 @@ def extraer_datos_web(url):
                 if match_anio:
                     anio = match_anio.group(0)
 
-        # Asignación a variables
         if titulo: st.session_state["in_titulo"] = titulo
         if autores: st.session_state["in_autor"] = ", ".join(autores)
         if fuente: st.session_state["in_fuente"] = fuente
@@ -323,7 +331,68 @@ def extraer_datos_web(url):
     except Exception as e:
         return False, f"Error al acceder a la página web: {str(e)}"
 
-# --- ESCÁNER ESTRUCTURAL DE PDF ---
+# --- EXTRACCIÓN GROBID ---
+def procesar_pdf_con_grobid(archivo_pdf_bytes):
+    try:
+        files = {'input': ('documento.pdf', archivo_pdf_bytes, 'application/pdf')}
+        data = {'consolidateHeader': '1'}
+        
+        response = requests.post(GROBID_URL, files=files, data=data, timeout=25)
+
+        if response.status_code != 200:
+            return False, f"Servidor GROBID responde con código {response.status_code}."
+
+        xml_data = response.text
+        root = ET.fromstring(xml_data)
+        ns = {'tei': 'http://www.tei-c.org/ns/1.0'}
+
+        title_node = root.find('.//tei:titleStmt/tei:title', ns)
+        titulo = title_node.text.strip() if title_node is not None and title_node.text else ""
+
+        autores_list = []
+        for author in root.findall('.//tei:analytic/tei:author', ns):
+            pers = author.find('tei:persName', ns)
+            if pers is not None:
+                surname = pers.find('tei:surname', ns)
+                forename = pers.find('tei:forename', ns)
+                ap = surname.text.strip() if surname is not None and surname.text else ""
+                nom = forename.text.strip()[0] + "." if forename is not None and forename.text else ""
+                if ap:
+                    autores_list.append(f"{ap}, {nom}" if nom else ap)
+        
+        autores = ", ".join(autores_list)
+
+        date_node = root.find('.//tei:publicationStmt/tei:date', ns) or root.find('.//tei:monogr/tei:imprint/tei:date', ns)
+        anio = ""
+        if date_node is not None:
+            anio_val = date_node.get('when', date_node.text or "")
+            match = re.search(r'\b(19\d{2}|20[0-2]\d)\b', anio_val)
+            if match:
+                anio = match.group(0)
+
+        journal_node = root.find('.//tei:monogr/tei:title', ns)
+        fuente = journal_node.text.strip() if journal_node is not None and journal_node.text else ""
+
+        doi_node = root.find('.//tei:idno[@type="DOI"]', ns)
+        url = ""
+        if doi_node is not None and doi_node.text:
+            url = f"https://doi.org/{doi_node.text.strip()}"
+
+        if titulo: st.session_state["in_titulo"] = titulo
+        if autores: st.session_state["in_autor"] = autores
+        if fuente: st.session_state["in_fuente"] = fuente
+        if anio: st.session_state["in_anio"] = anio
+        if url: st.session_state["in_url"] = url
+
+        if titulo or autores:
+            return True, "¡Metadatos analizados con éxito mediante GROBID!"
+        else:
+            return False, "GROBID no detectó suficiente información en la portada."
+
+    except Exception as e:
+        return False, f"Error de conexión con GROBID: {str(e)}"
+
+# --- ESCÁNER RESPALDO ---
 def procesar_pdf_profundo(archivo_pdf_bytes):
     if not PDF_DISPONIBLE:
         return False, "Librería pdfplumber no disponible."
@@ -439,12 +508,12 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
             st.session_state["in_anio"] = anio
             st.session_state["in_url"] = ""
 
-            return True, "¡Análisis del PDF completado!"
+            return True, "¡Análisis local del PDF completado!"
 
     except Exception as e:
         return False, f"Error al procesar la estructura del PDF: {str(e)}"
 
-# --- INTERFAZ STREAMLIT ---
+# --- PESTAÑAS DE LA APLICACIÓN ---
 tab1, tab2 = st.tabs(["➕ Crear Cita y Referencia", "🔍 Mis Citas Guardadas"])
 
 with tab1:
@@ -475,10 +544,15 @@ with tab1:
     with col_file:
         archivo_pdf = st.file_uploader("Sube tu archivo PDF:", type=["pdf"])
         if archivo_pdf is not None:
-            if st.button("🚀 Analizar PDF Inteligentemente", type="secondary"):
-                with st.spinner("Escaneando tipografías y estructura del PDF..."):
+            if st.button("🚀 Analizar PDF con GROBID", type="secondary"):
+                with st.spinner("Procesando documento con el motor GROBID..."):
                     bytes_data = archivo_pdf.read()
-                    exito, msg = procesar_pdf_profundo(bytes_data)
+                    
+                    exito, msg = procesar_pdf_con_grobid(bytes_data)
+                    
+                    if not exito:
+                        exito, msg = procesar_pdf_profundo(bytes_data)
+                        
                     if exito:
                         st.success(msg)
                         st.rerun()
