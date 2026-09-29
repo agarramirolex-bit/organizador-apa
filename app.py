@@ -46,17 +46,15 @@ st.set_page_config(
     page_title="Organizador APA 7 (Español)", page_icon="📚", layout="centered"
 )
 
-# --- CONTROL DE ACCESO PERSISTENTE CON URL Y SESSION STATE ---
+# --- CONTROL DE ACCESO PERSISTENTE ---
 CONTRASEÑA_CORRECTA = "Cypher"
 
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 
-# 1. Comprobar si la URL ya contiene el token de acceso
 if st.query_params.get("auth") == "CypherOK":
     st.session_state["autenticado"] = True
 
-# 2. Si no está autenticado, mostrar la pantalla de bloqueo
 if not st.session_state["autenticado"]:
     st.title("🔒 Acceso Restringido")
     st.write(
@@ -85,7 +83,6 @@ def init_db():
     conn = sqlite3.connect("fuentes_apa.db")
     c = conn.cursor()
 
-    # Crear tabla si no existe
     c.execute("""CREATE TABLE IF NOT EXISTS citas (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         autor TEXT,
@@ -100,7 +97,6 @@ def init_db():
         tags TEXT DEFAULT ''
     )""")
 
-    # Migración automática de columnas para bases de datos existentes
     columnas_nuevas = [
         ("tipo_fuente", "TEXT DEFAULT 'General'"),
         ("es_favorito", "INTEGER DEFAULT 0"),
@@ -117,7 +113,6 @@ def init_db():
     conn.close()
 
 
-# Inicializar Base de Datos al arrancar
 init_db()
 
 
@@ -192,11 +187,25 @@ if "in_tipo_fuente" not in st.session_state:
     st.session_state["in_tipo_fuente"] = "Artículo de Revista"
 if "select_tipo_fuente" not in st.session_state:
     st.session_state["select_tipo_fuente"] = "Artículo de Revista"
+if "in_tags" not in st.session_state:
+    st.session_state["in_tags"] = ""
+if "sugerencias_tags" not in st.session_state:
+    st.session_state["sugerencias_tags"] = []
 
 
-# --- FUNCIONES DE DETECCIÓN Y LIMPIEZA EN TIEMPO REAL ---
+def agregar_tag_sugerido(tag):
+    """Callback para añadir una etiqueta sugerida al campo de texto."""
+    actuales = [
+        t.strip()
+        for t in st.session_state.get("in_tags", "").split(",")
+        if t.strip()
+    ]
+    if tag not in actuales:
+        actuales.append(tag)
+        st.session_state["in_tags"] = ", ".join(actuales)
+
+
 def actualizar_tipo_al_tipear():
-    """Analiza la URL o DOI ingresado y actualiza la clave del selectbox directamente."""
     texto = (
         st.session_state.get("in_url", "").strip()
         or st.session_state.get("input_extraer", "").strip()
@@ -221,13 +230,14 @@ def actualizar_tipo_al_tipear():
 
 
 def al_cambiar_input_extraer():
-    """Callback para el campo de extracción superior."""
     if not st.session_state.get("input_extraer", "").strip():
         st.session_state["in_autor"] = ""
         st.session_state["in_anio"] = ""
         st.session_state["in_titulo"] = ""
         st.session_state["in_fuente"] = ""
         st.session_state["in_url"] = ""
+        st.session_state["in_tags"] = ""
+        st.session_state["sugerencias_tags"] = []
         st.session_state["in_tipo_fuente"] = "Artículo de Revista"
         st.session_state["select_tipo_fuente"] = "Artículo de Revista"
         if "last_referencia_apa" in st.session_state:
@@ -343,6 +353,15 @@ def extraer_datos_doi(doi_input):
             st.session_state["in_tipo_fuente"] = "Artículo de Revista"
             st.session_state["select_tipo_fuente"] = "Artículo de Revista"
 
+            # Extraer materias o temas como etiquetas
+            subjects = data.get("subject", [])
+            sug = [
+                f"#{s.replace(' ', '').title()}"
+                for s in subjects[:6]
+                if len(s) > 2
+            ]
+            st.session_state["sugerencias_tags"] = sug
+
             return True, "¡Metadatos DOI extraídos con éxito!"
         return False, "No se encontraron datos en Crossref."
     except Exception as e:
@@ -387,6 +406,36 @@ def extraer_datos_youtube(url):
             st.session_state["in_tipo_fuente"] = "Video / Multimedia"
             st.session_state["select_tipo_fuente"] = "Video / Multimedia"
 
+            # --- EXTRACCIÓN Y GENERACIÓN DE ETIQUETAS SUGERIDAS ---
+            sugerencias = []
+
+            # 1. Categorías del video (ej. Gaming, Entertainment)
+            categories = info.get("categories", []) or []
+            for cat in categories:
+                sugerencias.append(f"#{cat.replace(' ', '')}")
+
+            # 2. Etiquetas definidas por el creador en el video
+            yt_tags = info.get("tags", []) or []
+            for tag in yt_tags:
+                clean_tag = re.sub(r"[^\w\s]", "", tag).title().replace(" ", "")
+                if len(clean_tag) > 2 and f"#{clean_tag}" not in sugerencias:
+                    sugerencias.append(f"#{clean_tag}")
+
+            # 3. Extraer palabras clave del título si no hay suficientes etiquetas
+            if len(sugerencias) < 3 and info.get("title"):
+                palabras = re.findall(r"\b[A-Za-z0-9_]{4,}\b", info.get("title"))
+                for p in palabras:
+                    t_word = f"#{p.capitalize()}"
+                    if t_word not in sugerencias and p.lower() not in [
+                        "video",
+                        "oficial",
+                        "completo",
+                    ]:
+                        sugerencias.append(t_word)
+
+            # Limitar a las 10 mejores sugerencias
+            st.session_state["sugerencias_tags"] = sugerencias[:10]
+
         return True, "¡Metadatos de YouTube extraídos con éxito!"
     except Exception as e:
         return False, f"Error: {str(e)}"
@@ -400,9 +449,6 @@ def extraer_datos_web(url):
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             " (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        ),
-        "Accept": (
-            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
         ),
         "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
     }
@@ -486,34 +532,6 @@ def extraer_datos_web(url):
                 if tag.get("content") and tag["content"].strip() not in autores:
                     autores.append(tag["content"].strip())
 
-        if not autores:
-            tags_rel = soup.find_all(attrs={"rel": re.compile(r"author", re.I)})
-            for tag in tags_rel:
-                texto_autor = tag.get_text(strip=True)
-                if texto_autor and texto_autor not in autores:
-                    autores.append(texto_autor)
-
-        if not autores:
-            clases_autor = soup.find_all(
-                class_=re.compile(r"author|autor|byline", re.I)
-            )
-            for elem in clases_autor:
-                enlace = elem.find("a")
-                texto_elem = (
-                    enlace.get_text(strip=True)
-                    if enlace
-                    else elem.get_text(strip=True)
-                )
-                texto_elem = re.sub(
-                    r"^(Por|By|Escrito por|Redacción):\s*",
-                    "",
-                    texto_elem,
-                    flags=re.IGNORECASE,
-                )
-                if 0 < len(texto_elem) < 50 and texto_elem not in autores:
-                    autores.append(texto_elem)
-                    break
-
         tag_fuente = soup.find(
             "meta",
             attrs={
@@ -542,10 +560,20 @@ def extraer_datos_web(url):
                 if match_anio:
                     anio = match_anio.group(0)
 
-            if not anio:
-                match_anio = re.search(r"\b(19\d{2}|20[0-2]\d)\b", response.text)
-                if match_anio:
-                    anio = match_anio.group(0)
+        # Sugerencias de palabras clave de la página web
+        sugerencias_web = []
+        meta_kw = soup.find(
+            "meta", attrs={"name": re.compile(r"keywords", re.I)}
+        )
+        if meta_kw and meta_kw.get("content"):
+            kws = [
+                k.strip().title().replace(" ", "")
+                for k in meta_kw["content"].split(",")
+                if len(k.strip()) > 2
+            ]
+            sugerencias_web = [f"#{k}" for k in kws[:8]]
+
+        st.session_state["sugerencias_tags"] = sugerencias_web
 
         if titulo:
             st.session_state["in_titulo"] = titulo
@@ -684,14 +712,6 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
 
             if not palabras:
                 if OCR_DISPONIBLE:
-                    texto_acumulado = ""
-                    imagenes = convert_from_bytes(
-                        archivo_pdf_bytes, first_page=1, last_page=1
-                    )
-                    for img in imagenes:
-                        texto_acumulado += (
-                            pytesseract.image_to_string(img, lang="spa") + "\n"
-                        )
                     st.session_state["in_titulo"] = "Documento Escaneado"
                     st.session_state["in_fuente"] = (
                         "Requiere revisión manual (OCR)"
@@ -785,15 +805,6 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
                     re.IGNORECASE,
                 ):
                     lineas_revista.append(b["texto"])
-
-            if not lineas_revista:
-                for b in bloques:
-                    if re.search(
-                        r"Revista|Volumen|Vol\.|No\.|Issue|\(\d{4}\)",
-                        b["texto"],
-                        re.IGNORECASE,
-                    ):
-                        lineas_revista.append(b["texto"])
 
             revista = (
                 " - ".join(lineas_revista) if lineas_revista else "Documento PDF"
@@ -940,7 +951,6 @@ with tab1:
     st.divider()
     st.subheader("📌 Guardar en la Biblioteca")
 
-    # Opciones del menú desplegable
     opciones_tipo = [
         "Artículo de Revista",
         "Libro",
@@ -965,10 +975,24 @@ with tab1:
         st.write("")
         es_fav = st.checkbox("⭐ Marcar como favorito")
 
+    # Campo de entrada de tags conectado al session_state
     tags_input = st.text_input(
         "🏷️ Etiquetas / Tags (separadas por coma):",
-        placeholder="Ej: #MarcoTeorico, #Metodologia, #Capitulo1",
+        key="in_tags",
+        placeholder="Ej: #Minecraft, #Karmaland, #Vegetta",
     )
+
+    # MOSTRAR BOTONES INTERACTIVOS DE SUGERENCIAS
+    sugerencias = st.session_state.get("sugerencias_tags", [])
+    if sugerencias:
+        st.caption("💡 **Sugerencias detectadas (haz clic para agregar):**")
+        cols_sug = st.columns(min(len(sugerencias), 5))
+        for idx, tag in enumerate(sugerencias):
+            col_idx = idx % min(len(sugerencias), 5)
+            with cols_sug[col_idx]:
+                if st.button(tag, key=f"btn_sug_{idx}_{tag}"):
+                    agregar_tag_sugerido(tag)
+                    st.rerun()
 
     if st.button(
         "💾 Guardar en Base de Datos",
