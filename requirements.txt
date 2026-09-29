@@ -10,3 +10,4 @@ pytesseract
 beautifulsoup4
 streamlit
 matplotlib
+isbnlib
