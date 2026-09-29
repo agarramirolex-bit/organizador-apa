@@ -40,22 +40,17 @@ except ImportError:
 
 # Configuración de página
 st.set_page_config(page_title="Organizador APA 7 (Español)", page_icon="📚", layout="centered")
-
-# --- CONTROL DE ACCESO CON COOKIES (CORREGIDO) ---
+# --- CONTROL DE ACCESO PERSISTENTE CON URL Y SESSION STATE ---
 CONTRASEÑA_CORRECTA = "Cypher"
-
-cookie_manager = stx.CookieManager(key="cookie_manager_auth")
 
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 
-# Obtenemos todas las cookies cargadas por el navegador
-cookies = cookie_manager.get_all()
-
-# Verificamos si la cookie existe en el diccionario devuelto
-if cookies.get("auth_token_cypher") == "CypherOK":
+# 1. Comprobar si la URL ya contiene el token de acceso
+if st.query_params.get("auth") == "CypherOK":
     st.session_state["autenticado"] = True
 
+# 2. Si no está autenticado, mostrar la pantalla de bloqueo
 if not st.session_state["autenticado"]:
     st.title("🔒 Acceso Restringido")
     st.write("Ingresa la clave de acceso para utilizar el organizador de fuentes.")
@@ -65,12 +60,8 @@ if not st.session_state["autenticado"]:
     if st.button("Entrar", type="primary") or (clave_ingresada and clave_ingresada == CONTRASEÑA_CORRECTA):
         if clave_ingresada == CONTRASEÑA_CORRECTA:
             st.session_state["autenticado"] = True
-            
-            cookie_manager.set(
-                cookie="auth_token_cypher",
-                val="CypherOK",
-                expires_at=datetime.datetime.now() + datetime.timedelta(days=30)
-            )
+            # Guarda la sesión en la URL para que no vuelva a pedir contraseña al recargar
+            st.query_params["auth"] = "CypherOK"
             st.rerun()
         else:
             st.error("Contraseña incorrecta. Inténtalo de nuevo.")
