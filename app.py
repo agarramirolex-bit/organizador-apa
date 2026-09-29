@@ -40,7 +40,7 @@ except ImportError:
 # Configuración de página
 st.set_page_config(page_title="Organizador APA 7 (Español)", page_icon="📚", layout="centered")
 
-<# --- CONTROL DE ACCESO PERSISTENTE (CON COOKIES) ---
+# --- CONTROL DE ACCESO PERSISTENTE (CON COOKIES) ---
 CONTRASEÑA_CORRECTA = "Cypher"
 
 # Inicializar administrador de cookies
