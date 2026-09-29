@@ -46,6 +46,186 @@ st.set_page_config(
     page_title="Organizador APA 7 (Español)", page_icon="📚", layout="centered"
 )
 
+
+# --- TRADUCCIÓN AUTOMÁTICA AL ESPAÑOL ---
+def traducir_al_espanol(texto):
+    """Traduce un texto o palabra clave al español usando la API pública de traducción."""
+    if not texto or not texto.strip():
+        return texto
+    try:
+        url = "https://translate.googleapis.com/translate_a/single"
+        params = {
+            "client": "gtx",
+            "sl": "auto",
+            "tl": "es",
+            "dt": "t",
+            "q": texto.strip(),
+        }
+        response = requests.get(url, params=params, timeout=3)
+        if response.status_code == 200:
+            data = response.json()
+            return data[0][0][0]
+    except Exception:
+        pass
+    return texto
+
+
+# --- LISTA DE PALABRAS A IGNORAR (STOPWORDS) PARA ETIQUETAS ---
+STOPWORDS = {
+    "de",
+    "la",
+    "que",
+    "el",
+    "en",
+    "y",
+    "a",
+    "los",
+    "del",
+    "se",
+    "las",
+    "por",
+    "un",
+    "para",
+    "con",
+    "no",
+    "una",
+    "su",
+    "al",
+    "lo",
+    "como",
+    "mas",
+    "más",
+    "pero",
+    "sus",
+    "le",
+    "ya",
+    "o",
+    "este",
+    "sí",
+    "porque",
+    "esta",
+    "entre",
+    "cuando",
+    "muy",
+    "sin",
+    "sobre",
+    "también",
+    "me",
+    "hasta",
+    "hay",
+    "donde",
+    "quien",
+    "desde",
+    "todo",
+    "nos",
+    "durante",
+    "todos",
+    "uno",
+    "les",
+    "ni",
+    "contra",
+    "otros",
+    "ese",
+    "eso",
+    "ante",
+    "ellos",
+    "e",
+    "esto",
+    "mí",
+    "antes",
+    "algunos",
+    "qué",
+    "unos",
+    "yo",
+    "otro",
+    "otras",
+    "otra",
+    "él",
+    "tanto",
+    "esa",
+    "estos",
+    "mucho",
+    "quienes",
+    "nada",
+    "muchos",
+    "cual",
+    "poco",
+    "ella",
+    "estar",
+    "estas",
+    "algunas",
+    "algo",
+    "nosotros",
+    "mi",
+    "mis",
+    "tú",
+    "te",
+    "ti",
+    "tu",
+    "tus",
+    "video",
+    "canal",
+    "suscribete",
+    "suscríbete",
+    "oficial",
+    "completo",
+    "link",
+    "links",
+    "redes",
+    "sociales",
+    "instagram",
+    "facebook",
+    "twitter",
+    "youtube",
+    "gracias",
+    "bienvenidos",
+    "hola",
+    "http",
+    "https",
+    "com",
+    "www",
+}
+
+
+def extraer_palabras_clave_texto(texto):
+    """Extrae hashtags y palabras clave, traduciéndolas al español."""
+    if not texto:
+        return []
+
+    sugerencias = []
+
+    # 1. Hashtags explícitos (#Psychology -> #Psicologia)
+    hashtags_directos = re.findall(r"#(\w+)", texto)
+    for h in hashtags_directos:
+        h_traducido = traducir_al_espanol(h)
+        clean_h = (
+            f"#{re.sub(r'[^\w]', '', h_traducido).capitalize()}"
+        )
+        if clean_h not in sugerencias:
+            sugerencias.append(clean_h)
+
+    # 2. Palabras relevantes del título o descripción (>3 letras y no stopwords)
+    palabras = re.findall(r"\b[a-zA-ZáéíóúÁÉÍÓÚñÑ]{4,}\b", texto)
+    palabras_filtradas = []
+    for p in palabras:
+        if (
+            p.lower() not in STOPWORDS
+            and p.lower() not in palabras_filtradas
+        ):
+            palabras_filtradas.append(p)
+            if len(palabras_filtradas) >= 10:
+                break
+
+    for p in palabras_filtradas:
+        p_traducida = traducir_al_espanol(p)
+        clean_p = re.sub(r"[^\w]", "", p_traducida).capitalize()
+        tag = f"#{clean_p}"
+        if tag not in sugerencias and len(clean_p) > 2:
+            sugerencias.append(tag)
+
+    return sugerencias
+
+
 # --- CONTROL DE ACCESO PERSISTENTE ---
 CONTRASEÑA_CORRECTA = "Cypher"
 
@@ -193,15 +373,15 @@ if "sugerencias_tags" not in st.session_state:
     st.session_state["sugerencias_tags"] = []
 
 
-def agregar_tag_sugerido(tag):
-    """Callback para añadir una etiqueta sugerida al campo de texto."""
+# Callback seguro para agregar sugerencias sin error de renderizado
+def agregar_tag_sugerido(tag_a_agregar):
     actuales = [
         t.strip()
         for t in st.session_state.get("in_tags", "").split(",")
         if t.strip()
     ]
-    if tag not in actuales:
-        actuales.append(tag)
+    if tag_a_agregar not in actuales:
+        actuales.append(tag_a_agregar)
         st.session_state["in_tags"] = ", ".join(actuales)
 
 
@@ -311,6 +491,7 @@ def procesar_autores_y_citas(autor_str, titulo_str, anio_str):
 
 
 def extraer_datos_doi(doi_input):
+    st.session_state["sugerencias_tags"] = []
     match = re.search(r"10\.\d{4,9}/[-._;()/:A-Za-z0-9]+", doi_input)
     if not match:
         return False, "No se reconoció un formato de DOI válido."
@@ -353,15 +534,16 @@ def extraer_datos_doi(doi_input):
             st.session_state["in_tipo_fuente"] = "Artículo de Revista"
             st.session_state["select_tipo_fuente"] = "Artículo de Revista"
 
-            # Extraer materias o temas como etiquetas
             subjects = data.get("subject", [])
-            sug = [
-                f"#{s.replace(' ', '').title()}"
-                for s in subjects[:6]
-                if len(s) > 2
-            ]
-            st.session_state["sugerencias_tags"] = sug
+            sug = []
+            for s in subjects[:6]:
+                if len(s) > 2:
+                    s_trad = traducir_al_espanol(s)
+                    clean_s = f"#{re.sub(r'[^\w]', '', s_trad).capitalize()}"
+                    if clean_s not in sug:
+                        sug.append(clean_s)
 
+            st.session_state["sugerencias_tags"] = sug
             return True, "¡Metadatos DOI extraídos con éxito!"
         return False, "No se encontraron datos en Crossref."
     except Exception as e:
@@ -371,11 +553,17 @@ def extraer_datos_doi(doi_input):
 def extraer_datos_youtube(url):
     if not YOUTUBE_DISPONIBLE:
         return False, "Falta instalar yt-dlp."
+
+    st.session_state["sugerencias_tags"] = []
+
     try:
         ydl_opts = {"quiet": True, "extract_flat": False}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            st.session_state["in_titulo"] = f"{info.get('title', '')} [Video]"
+            titulo_raw = info.get("title", "")
+            descripcion_raw = info.get("description", "") or ""
+
+            st.session_state["in_titulo"] = f"{titulo_raw} [Video]"
             st.session_state["in_autor"] = info.get("uploader", "")
             st.session_state["in_fuente"] = "YouTube"
             st.session_state["in_url"] = url
@@ -406,34 +594,33 @@ def extraer_datos_youtube(url):
             st.session_state["in_tipo_fuente"] = "Video / Multimedia"
             st.session_state["select_tipo_fuente"] = "Video / Multimedia"
 
-            # --- EXTRACCIÓN Y GENERACIÓN DE ETIQUETAS SUGERIDAS ---
+            # --- EXTRACCIÓN Y TRADUCCIÓN DE ETIQUETAS ---
             sugerencias = []
 
-            # 1. Categorías del video (ej. Gaming, Entertainment)
+            # 1. Categoría traducida
             categories = info.get("categories", []) or []
             for cat in categories:
-                sugerencias.append(f"#{cat.replace(' ', '')}")
+                cat_es = traducir_al_espanol(cat)
+                tag_cat = f"#{re.sub(r'[^\w]', '', cat_es).capitalize()}"
+                if tag_cat not in sugerencias:
+                    sugerencias.append(tag_cat)
 
-            # 2. Etiquetas definidas por el creador en el video
+            # 2. Etiquetas del autor traducidas
             yt_tags = info.get("tags", []) or []
-            for tag in yt_tags:
-                clean_tag = re.sub(r"[^\w\s]", "", tag).title().replace(" ", "")
+            for tag in yt_tags[:6]:
+                tag_es = traducir_al_espanol(tag)
+                clean_tag = re.sub(r"[^\w]", "", tag_es).capitalize()
                 if len(clean_tag) > 2 and f"#{clean_tag}" not in sugerencias:
                     sugerencias.append(f"#{clean_tag}")
 
-            # 3. Extraer palabras clave del título si no hay suficientes etiquetas
-            if len(sugerencias) < 3 and info.get("title"):
-                palabras = re.findall(r"\b[A-Za-z0-9_]{4,}\b", info.get("title"))
-                for p in palabras:
-                    t_word = f"#{p.capitalize()}"
-                    if t_word not in sugerencias and p.lower() not in [
-                        "video",
-                        "oficial",
-                        "completo",
-                    ]:
-                        sugerencias.append(t_word)
+            # 3. Análisis de palabras clave en Título + Descripción
+            texto_para_analizar = f"{titulo_raw} {descripcion_raw[:500]}"
+            tags_extraidos = extraer_palabras_clave_texto(texto_para_analizar)
 
-            # Limitar a las 10 mejores sugerencias
+            for tag in tags_extraidos:
+                if tag not in sugerencias:
+                    sugerencias.append(tag)
+
             st.session_state["sugerencias_tags"] = sugerencias[:10]
 
         return True, "¡Metadatos de YouTube extraídos con éxito!"
@@ -442,6 +629,7 @@ def extraer_datos_youtube(url):
 
 
 def extraer_datos_web(url):
+    st.session_state["sugerencias_tags"] = []
     if not BS4_DISPONIBLE:
         return False, "Falta instalar beautifulsoup4."
 
@@ -560,18 +748,21 @@ def extraer_datos_web(url):
                 if match_anio:
                     anio = match_anio.group(0)
 
-        # Sugerencias de palabras clave de la página web
         sugerencias_web = []
         meta_kw = soup.find(
             "meta", attrs={"name": re.compile(r"keywords", re.I)}
         )
         if meta_kw and meta_kw.get("content"):
             kws = [
-                k.strip().title().replace(" ", "")
+                k.strip()
                 for k in meta_kw["content"].split(",")
                 if len(k.strip()) > 2
             ]
-            sugerencias_web = [f"#{k}" for k in kws[:8]]
+            for kw in kws[:6]:
+                kw_es = traducir_al_espanol(kw)
+                clean_kw = f"#{re.sub(r'[^\w]', '', kw_es).capitalize()}"
+                if clean_kw not in sugerencias_web:
+                    sugerencias_web.append(clean_kw)
 
         st.session_state["sugerencias_tags"] = sugerencias_web
 
@@ -601,6 +792,7 @@ def extraer_datos_web(url):
 
 
 def procesar_pdf_con_grobid(archivo_pdf_bytes):
+    st.session_state["sugerencias_tags"] = []
     try:
         files = {"input": ("documento.pdf", archivo_pdf_bytes, "application/pdf")}
         data = {"consolidateHeader": "1"}
@@ -695,6 +887,7 @@ def procesar_pdf_con_grobid(archivo_pdf_bytes):
 
 
 def procesar_pdf_profundo(archivo_pdf_bytes):
+    st.session_state["sugerencias_tags"] = []
     if not PDF_DISPONIBLE:
         return False, "Librería pdfplumber no disponible."
 
@@ -975,14 +1168,12 @@ with tab1:
         st.write("")
         es_fav = st.checkbox("⭐ Marcar como favorito")
 
-    # Campo de entrada de tags conectado al session_state
     tags_input = st.text_input(
         "🏷️ Etiquetas / Tags (separadas por coma):",
         key="in_tags",
-        placeholder="Ej: #Minecraft, #Karmaland, #Vegetta",
+        placeholder="Ej: #Psicometria, #Evaluacion, #Psicologia",
     )
 
-    # MOSTRAR BOTONES INTERACTIVOS DE SUGERENCIAS
     sugerencias = st.session_state.get("sugerencias_tags", [])
     if sugerencias:
         st.caption("💡 **Sugerencias detectadas (haz clic para agregar):**")
@@ -990,9 +1181,12 @@ with tab1:
         for idx, tag in enumerate(sugerencias):
             col_idx = idx % min(len(sugerencias), 5)
             with cols_sug[col_idx]:
-                if st.button(tag, key=f"btn_sug_{idx}_{tag}"):
-                    agregar_tag_sugerido(tag)
-                    st.rerun()
+                st.button(
+                    tag,
+                    key=f"btn_sug_{idx}",
+                    on_click=agregar_tag_sugerido,
+                    args=(tag,),
+                )
 
     if st.button(
         "💾 Guardar en Base de Datos",
