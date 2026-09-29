@@ -8,7 +8,11 @@ import pandas as pd
 import requests
 import streamlit as st
 import urllib3
-
+try:
+    import isbnlib
+    ISBNLIB_DISPONIBLE = True
+except ImportError:
+    ISBNLIB_DISPONIBLE = False
 try:
     import yt_dlp
 
