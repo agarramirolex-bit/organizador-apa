@@ -383,9 +383,9 @@ def procesar_autores_y_citas(autor_str, titulo_str, anio_str):
     return ref_autores, cita_parentetica, cita_narrativa, anio_ref
 
 
-# --- CAPA DE RESPALDO DE WEB SCRAPING PARA ISBN ---
+# --- CAPA DE RESPALDO DE WEB SCRAPING Y APIS PARA ISBN ---
 def extraer_datos_isbn_web(clean_isbn):
-    """Rescata metadatos haciendo web scraping en isbnsearch.org como método definitivo."""
+    """Rescata metadatos haciendo web scraping en isbnsearch.org como método de respaldo."""
     if not BS4_DISPONIBLE:
         return False
 
@@ -416,21 +416,31 @@ def extraer_datos_isbn_web(clean_isbn):
             publisher_match = re.search(r"Publisher:\s*([^\n]+)", texto_info)
             editorial = publisher_match.group(1).strip() if publisher_match else ""
 
-            date_match = re.search(r"Publication Date:\s*([^\n]+)", texto_info)
+            # Búsqueda de año flexible en el texto de la web
             anio = ""
+            date_match = re.search(r"Publication Date:\s*([^\n]+)", texto_info)
             if date_match:
                 anio_txt = date_match.group(1)
-                anio_match = re.search(r"\b(19\d{2}|20[0-2]\d)\b", anio_txt)
+                anio_match = re.search(r"\b(19\d{2}|20[0-3]\d)\b", anio_txt)
                 if anio_match:
                     anio = anio_match.group(0)
+            
+            if not anio:
+                # Búsqueda general de 4 dígitos si no encontró la etiqueta exacta
+                anio_match_gen = re.search(r"\b(19\d{2}|20[0-3]\d)\b", texto_info)
+                if anio_match_gen:
+                    anio = anio_match_gen.group(0)
 
             author_match = re.search(r"Author:\s*([^\n]+)", texto_info)
             autor = author_match.group(1).strip() if author_match else ""
 
             st.session_state["in_titulo"] = titulo
-            st.session_state["in_autor"] = autor
-            st.session_state["in_fuente"] = editorial
-            st.session_state["in_anio"] = anio
+            if autor:
+                st.session_state["in_autor"] = autor
+            if editorial:
+                st.session_state["in_fuente"] = editorial
+            if anio:
+                st.session_state["in_anio"] = anio
             st.session_state["in_url"] = url
             st.session_state["in_tipo_fuente"] = "Libro"
             st.session_state["select_tipo_fuente"] = "Libro"
@@ -446,14 +456,16 @@ def extraer_datos_isbn_web(clean_isbn):
 
 
 def extraer_datos_isbn(isbn_input):
-    """Extrae metadatos de un libro usando isbnlib, Google Books y Web Scraping de respaldo."""
+    """Extrae metadatos de un libro usando isbnlib, Google Books, Open Library y Web Scraping."""
     st.session_state["sugerencias_tags"] = []
     clean_isbn = re.sub(r"[^\dX]", "", isbn_input.upper())
 
     if not clean_isbn:
         return False, "Formato de ISBN no válido."
 
-    # CAPA 1: Usar isbnlib (Busca en Google Books, OpenLibrary, Wikidata, etc.)
+    encontro_algo = False
+
+    # CAPA 1: Usar isbnlib
     if ISBNLIB_DISPONIBLE:
         try:
             libro = isbnlib.meta(clean_isbn)
@@ -472,21 +484,22 @@ def extraer_datos_isbn(isbn_input):
                         autores_fmt.append(a)
                         
                 st.session_state["in_autor"] = ", ".join(autores_fmt)
-                st.session_state["in_anio"] = libro.get("Year", "")
+                
+                anio_lib = libro.get("Year", "")
+                if anio_lib:
+                    st.session_state["in_anio"] = str(anio_lib)
+                    
                 st.session_state["in_fuente"] = libro.get("Publisher", "")
                 st.session_state["in_url"] = f"https://isbnsearch.org/isbn/{clean_isbn}"
                 st.session_state["in_tipo_fuente"] = "Libro"
                 st.session_state["select_tipo_fuente"] = "Libro"
-                
-                sugerencias = extraer_palabras_clave_texto(libro.get("Title", ""))
-                st.session_state["sugerencias_tags"] = sugerencias[:10]
-                
-                return True, "¡Metadatos extraídos con éxito mediante isbnlib!"
+                encontro_algo = True
         except Exception:
             pass
 
-    # CAPA 2: Google Books API Directo
     headers = {"User-Agent": "OrganizadorAPA_App/1.0"}
+
+    # CAPA 2: Google Books API (Excelente para asegurar el año si faltaba)
     try:
         url_gb = f"https://www.googleapis.com/books/v1/volumes?q=isbn:{clean_isbn}"
         res_gb = requests.get(url_gb, headers=headers, timeout=10)
@@ -494,25 +507,69 @@ def extraer_datos_isbn(isbn_input):
             data = res_gb.json()
             if data.get("totalItems", 0) > 0:
                 book = data["items"][0]["volumeInfo"]
-                st.session_state["in_titulo"] = book.get("title", "")
-                autores_raw = book.get("authors", [])
-                st.session_state["in_autor"] = ", ".join(autores_raw)
-                st.session_state["in_anio"] = book.get("publishedDate", "")[:4]
-                st.session_state["in_fuente"] = book.get("publisher", "")
+                if not st.session_state.get("in_titulo"):
+                    st.session_state["in_titulo"] = book.get("title", "")
+                if not st.session_state.get("in_autor"):
+                    autores_raw = book.get("authors", [])
+                    st.session_state["in_autor"] = ", ".join(autores_raw)
+                
+                # Extraer año de forma segura de Google Books (puede venir como "2021-05" o "2021")
+                pub_date = book.get("publishedDate", "")
+                if pub_date and not st.session_state.get("in_anio"):
+                    match_anio = re.search(r"\b(19\d{2}|20[0-3]\d)\b", pub_date)
+                    if match_anio:
+                        st.session_state["in_anio"] = match_anio.group(0)
+
+                if not st.session_state.get("in_fuente"):
+                    st.session_state["in_fuente"] = book.get("publisher", "")
+                    
                 st.session_state["in_url"] = f"https://isbnsearch.org/isbn/{clean_isbn}"
                 st.session_state["in_tipo_fuente"] = "Libro"
                 st.session_state["select_tipo_fuente"] = "Libro"
-                return True, "¡Metadatos del libro extraídos vía Google Books!"
+                encontro_algo = True
     except Exception:
         pass
 
-    # CAPA 3: Web Scraping de Rescate (ISBNSearch)
-    if extraer_datos_isbn_web(clean_isbn):
-        return True, "¡Metadatos del libro extraídos mediante Web Scraping!"
+    # CAPA 3: Open Library API (Nueva capa ultra confiable para fechas de libros)
+    try:
+        url_ol = f"https://openlibrary.org/api/books?bibkeys=ISBN:{clean_isbn}&format=json&jscmd=data"
+        res_ol = requests.get(url_ol, headers=headers, timeout=10)
+        if res_ol.status_code == 200:
+            data_ol = res_ol.json()
+            key_ol = f"ISBN:{clean_isbn}"
+            if key_ol in data_ol:
+                info_ol = data_ol[key_ol]
+                if not st.session_state.get("in_titulo"):
+                    st.session_state["in_titulo"] = info_ol.get("title", "")
+                if not st.session_state.get("in_autor"):
+                    auts = [a.get("name", "") for a in info_ol.get("authors", [])]
+                    st.session_state["in_autor"] = ", ".join(auts)
+                if not st.session_state.get("in_fuente"):
+                    pubs = [p.get("name", "") for p in info_ol.get("publishers", [])]
+                    st.session_state["in_fuente"] = pubs[0] if pubs else ""
+                
+                pub_date_ol = info_ol.get("publish_date", "")
+                if pub_date_ol and not st.session_state.get("in_anio"):
+                    match_anio_ol = re.search(r"\b(19\d{2}|20[0-3]\d)\b", pub_date_ol)
+                    if match_anio_ol:
+                        st.session_state["in_anio"] = match_anio_ol.group(0)
+                encontro_algo = True
+    except Exception:
+        pass
 
-    return False, "No se encontraron registros para este ISBN en ninguna fuente disponible."
+    # CAPA 4: Web Scraping de Rescate (ISBNSearch) si aún falta información clave
+    if not st.session_state.get("in_titulo") or not st.session_state.get("in_anio"):
+        if extraer_datos_isbn_web(clean_isbn):
+            encontro_algo = True
 
+    if encontro_algo:
+        titulo_final = st.session_state.get("in_titulo", "")
+        if titulo_final:
+            sugerencias = extraer_palabras_clave_texto(titulo_final)
+            st.session_state["sugerencias_tags"] = sugerencias[:10]
+        return True, "¡Metadatos del libro y fecha extraídos con éxito!"
 
+    return False, "No se encontraron registros completos para este ISBN en las fuentes disponibles."
 def extraer_datos_doi(doi_input):
     st.session_state["sugerencias_tags"] = []
     match = re.search(r"10\.\d{4,9}/[-._;()/:A-Za-z0-9]+", doi_input)
