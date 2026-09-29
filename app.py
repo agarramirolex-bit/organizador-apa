@@ -520,10 +520,13 @@ def extraer_datos_isbn(isbn_input):
     if not clean_isbn:
         return False, "Formato de ISBN no válido."
 
+    # NUEVO: Cabeceras HTTP para identificar la app y evitar bloqueos del servidor
+    headers = {"User-Agent": "OrganizadorAPA_App/1.0 (Contacto: app@localhost.com)"}
+
     # Intento 1: API de Google Books
     try:
         url_gb = f"https://www.googleapis.com/books/v1/volumes?q=isbn:{clean_isbn}"
-        res_gb = requests.get(url_gb, timeout=10)
+        res_gb = requests.get(url_gb, headers=headers, timeout=10)
         if res_gb.status_code == 200:
             data = res_gb.json()
             if data.get("totalItems", 0) > 0:
@@ -576,7 +579,7 @@ def extraer_datos_isbn(isbn_input):
     # Intento 2: Fallback a Open Library API
     try:
         url_ol = f"https://openlibrary.org/api/books?bibkeys=ISBN:{clean_isbn}&jscmd=data&format=json"
-        res_ol = requests.get(url_ol, timeout=10)
+        res_ol = requests.get(url_ol, headers=headers, timeout=10)
         if res_ol.status_code == 200:
             data_ol = res_ol.json()
             key = f"ISBN:{clean_isbn}"
@@ -1222,7 +1225,7 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
                     st.rerun()
                 else:
                     st.warning(msg)
-                    st.rerun()
+                    # LÍNEA DE st.rerun() ELIMINADA AQUÍ PARA MOSTRAR LOS ERRORES
             else:
                 st.warning("Por favor ingresa una URL, DOI o ISBN.")
 
