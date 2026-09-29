@@ -10,19 +10,13 @@ import streamlit as st
 import urllib3
 import subprocess
 import sys
+import es_core_news_sm
 import spacy
-
 
 @st.cache_resource
 def cargar_spacy():
-    try:
-        return spacy.load("es_core_news_sm")
-    except OSError:
-        # Descarga el modelo en el servidor si aún no está presente
-        subprocess.run(
-            [sys.executable, "-m", "spacy", "download", "es_core_news_sm"]
-        )
-        return spacy.load("es_core_news_sm")
+    return es_core_news_sm.load()
+
 
 nlp = cargar_spacy()
 
