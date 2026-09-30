@@ -1290,7 +1290,6 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
                 es_favorito=fav_int, tags=tags_input.strip(), proyecto=proj_final,
             )
 
-          'limpiar_formulario()'
             st.session_state["pestana_activa"] = "🔍 Mis Citas Guardadas"
             st.toast("¡Fuente guardada exitosamente! Redirigiendo...", icon="✅")
             st.rerun()
