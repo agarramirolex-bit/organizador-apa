@@ -263,22 +263,25 @@ if "pestana_activa" not in st.session_state:
 
 
 def limpiar_formulario():
-    st.session_state["in_autor"] = ""
-    st.session_state["in_anio"] = ""
-    st.session_state["in_titulo"] = ""
-    st.session_state["in_fuente"] = ""
-    st.session_state["in_url"] = ""
-    st.session_state["in_tags"] = ""
-    st.session_state["input_extraer"] = ""
-    st.session_state["sugerencias_tags"] = []
+    # En lugar de vaciar las keys directamente si ya están instanciadas, 
+    # podemos usar valores por defecto o vaciar las keys de forma segura 
+    # asegurándonos de que se recargue la app o limpiando el input_extraer.
+    keys_a_limpiar = [
+        "in_autor", "in_anio", "in_titulo", "in_fuente", 
+        "in_url", "in_tags", "input_extraer"
+    ]
+    for key in keys_a_limpiar:
+        if key in st.session_state:
+            st.session_state[key] = ""
+            
     st.session_state["in_tipo_fuente"] = "Artículo de Revista"
     st.session_state["select_tipo_fuente"] = "Artículo de Revista"
+    st.session_state["sugerencias_tags"] = []
+    
     if "last_referencia_apa" in st.session_state:
         del st.session_state["last_referencia_apa"]
     if "last_cita_in_text" in st.session_state:
         del st.session_state["last_cita_in_text"]
-
-
 def agregar_tag_sugerido(tag_a_agregar):
     actuales = [
         t.strip()
