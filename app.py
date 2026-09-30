@@ -380,6 +380,8 @@ if "sugerencias_tags" not in st.session_state:
     st.session_state["sugerencias_tags"] = []
 if "input_extraer" not in st.session_state:
     st.session_state["input_extraer"] = ""
+if "_input_extraer_tenia_contenido" not in st.session_state:
+    st.session_state["_input_extraer_tenia_contenido"] = False
 if "pestana_activa" not in st.session_state:
     st.session_state["pestana_activa"] = "➕ Crear Cita y Referencia"
 
@@ -407,6 +409,7 @@ def limpiar_formulario():
         del st.session_state["last_referencia_apa"]
     if "last_cita_in_text" in st.session_state:
         del st.session_state["last_cita_in_text"]
+    st.session_state["_input_extraer_tenia_contenido"] = False
 
 
 def agregar_tag_sugerido(tag_a_agregar):
@@ -447,15 +450,23 @@ def actualizar_tipo_al_tipear():
 
 
 def al_cambiar_input_extraer():
-    if not st.session_state.get("input_extraer", "").strip():
-        limpiar_formulario()
+    texto_actual = st.session_state.get("input_extraer", "").strip()
+    if not texto_actual:
+        # Solo limpiar si había datos extraídos (título relleno) y el usuario borró la URL
+        # Así evitamos limpiar al simplemente cambiar de pestaña o recargar la página
+        if st.session_state.get("_input_extraer_tenia_contenido"):
+            limpiar_formulario()
+        st.session_state["_input_extraer_tenia_contenido"] = False
     else:
+        st.session_state["_input_extraer_tenia_contenido"] = True
         actualizar_tipo_al_tipear()
 
 def al_cambiar_pdf():
-    # Si el usuario hace clic en la 'X' para descartar el PDF, limpiamos automáticamente los datos
+    # Limpiar solo si el PDF se descartó y había datos extraídos de él (título relleno)
+    # Así evitamos limpiar al simplemente entrar a la página sin haber analizado nada
     if st.session_state.get("uploader_pdf") is None:
-        limpiar_formulario()
+        if st.session_state.get("in_titulo", "").strip() or st.session_state.get("in_autor", "").strip():
+            limpiar_formulario()
 
 
 def procesar_autores_y_citas(autor_str, titulo_str, anio_str):
@@ -1125,8 +1136,8 @@ def extraer_metadatos_con_gemini(bytes_pdf, api_key):
                     tags_fmt = [formatear_tag(t) for t in tags if formatear_tag(t)]
                     st.session_state["sugerencias_tags"] = tags_fmt[:10]
 
-                if info.get("resumen_clave") and not st.session_state.get("in_notas"):
-                    st.session_state["in_notas"] = f"Resumen IA: {info['resumen_clave'].strip()}"
+                # El resumen de Gemini se omite en notas para que el usuario decida qué anotar
+                # (info["resumen_clave"] disponible internamente si se necesita en el futuro)
 
                 return True, "¡Metadatos analizados y clasificados con Gemini 3.8 Flash!"
         elif res.status_code == 429:
