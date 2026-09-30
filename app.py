@@ -226,6 +226,33 @@ def obtener_citas_db():
 
 
 # --- INTERFAZ PRINCIPAL Y SESSION STATE ---
+# --- CONFIGURACIÓN DE IA EN SIDEBAR ---
+with st.sidebar:
+    st.header("⚙️ Configuración")
+    st.markdown("### 🤖 Motor de IA Gemini")
+    
+    secret_key = ""
+    try:
+        secret_key = st.secrets.get("GEMINI_API_KEY", "")
+    except Exception:
+        pass
+    
+    default_key = st.session_state.get("gemini_api_key", secret_key)
+    gemini_key = st.text_input(
+        "Clave API Gemini (Opcional):",
+        value=default_key,
+        type="password",
+        help="Obtén tu clave gratuita en https://aistudio.google.com/. Permite análisis de PDF ultra-preciso con IA.",
+        key="input_gemini_key",
+    )
+    if gemini_key:
+        st.session_state["gemini_api_key"] = gemini_key
+        st.success("✨ Gemini 3.8 Flash activo")
+    else:
+        st.caption("ℹ️ Sin clave: Se usará el motor local + Crossref (100% gratuito).")
+    
+    st.divider()
+
 st.title("📚 Organizador de Fuentes y Generador APA 7")
 st.write(
     "Extrae metadatos mediante **DOI, ISBN, YouTube, páginas web o archivos"
@@ -905,6 +932,122 @@ def extraer_datos_web(url):
         return False, f"Error al acceder a la página web: {str(e)}"
 
 
+# --- INTEGRACIÓN CON GOOGLE GEMINI 3.8 FLASH ---
+def extraer_metadatos_con_gemini(bytes_pdf, api_key):
+    if not api_key or not str(api_key).strip():
+        return False, "No se proporcionó API Key de Gemini."
+
+    texto_muestra = ""
+    try:
+        with pdfplumber.open(io.BytesIO(bytes_pdf)) as pdf:
+            paginas = pdf.pages[:3]
+            for p in paginas:
+                t = p.extract_text()
+                if t:
+                    texto_muestra += t + "\n"
+    except Exception:
+        pass
+
+    if not texto_muestra.strip():
+        return False, "No se pudo extraer texto legible del PDF para enviar a Gemini."
+
+    prompt = (
+        "Eres un experto bibliotecario y especialista en Normas APA 7.ª edición en español.\n"
+        "Analiza el siguiente texto de las primeras páginas de un documento académico o libro y extrae con máxima fidelidad sus metadatos bibliográficos.\n"
+        "Responde ÚNICAMENTE con un objeto JSON válido (sin explicaciones adicionales, sin markdown adicional, sin bloques de código) con los siguientes campos:\n\n"
+        "{\n"
+        '  "titulo": "Título completo y exacto del artículo o libro",\n'
+        '  "autores": ["Apellido, N.", "Apellido, N."],\n'
+        '  "anio": "Año de publicación (4 dígitos)",\n'
+        '  "fuente": "Nombre de la revista académica, editorial, o institución",\n'
+        '  "doi_o_url": "DOI (ej. 10.xxxx/...) o enlace URL si está presente en el texto, o vacío",\n'
+        '  "tipo_fuente": "Artículo de Revista",\n'
+        '  "tema_sugerido": "General",\n'
+        '  "tags_sugeridos": ["#Tag1", "#Tag2", "#Tag3"],\n'
+        '  "resumen_clave": "Breve resumen de 1 a 2 oraciones sobre el propósito y conclusión del texto."\n'
+        "}\n\n"
+        'Valores permitidos para "tipo_fuente":\n'
+        '["Artículo de Revista", "Libro", "Capítulo de Libro", "Página Web", "Tesis / Monografía", "Video / Multimedia", "Otro"]\n\n'
+        'Valores recomendados para "tema_sugerido":\n'
+        '["Estadística y Datos", "Ciencia y Metodología", "Matemáticas", "Computación y Software", "Psicología y Ciencias Sociales", "Salud y Medicina", "Humanidades y Filosofía", "Economía y Negocios", "General"]\n\n'
+        "Texto del documento:\n"
+        + texto_muestra[:5000]
+    )
+
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "response_mime_type": "application/json",
+            "temperature": 0.1
+        }
+    }
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={str(api_key).strip()}"
+
+    try:
+        res = requests.post(url, headers=headers, json=payload, timeout=15)
+        if res.status_code == 200:
+            data_json = res.json()
+            candidates = data_json.get("candidates", [])
+            if candidates:
+                raw_text = candidates[0]["content"]["parts"][0]["text"].strip()
+                if raw_text.startswith("```"):
+                    raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
+                    raw_text = re.sub(r"\s*```$", "", raw_text)
+                
+                info = json.loads(raw_text)
+
+                if info.get("titulo"):
+                    st.session_state["in_titulo"] = info["titulo"].strip()
+                
+                autores = info.get("autores", [])
+                if isinstance(autores, list) and autores:
+                    st.session_state["in_autor"] = ", ".join(autores)
+                elif isinstance(autores, str):
+                    st.session_state["in_autor"] = autores.strip()
+
+                if info.get("anio"):
+                    st.session_state["in_anio"] = str(info["anio"]).strip()
+                
+                if info.get("fuente"):
+                    st.session_state["in_fuente"] = info["fuente"].strip()
+                
+                if info.get("doi_o_url"):
+                    doi_val = info["doi_o_url"].strip()
+                    if "10." in doi_val and not doi_val.startswith("http"):
+                        doi_val = f"https://doi.org/{doi_val}"
+                    st.session_state["in_url"] = doi_val
+                
+                tipos_validos = [
+                    "Artículo de Revista", "Libro", "Capítulo de Libro", 
+                    "Página Web", "Tesis / Monografía", "Video / Multimedia", "Otro"
+                ]
+                if info.get("tipo_fuente") in tipos_validos:
+                    st.session_state["in_tipo_fuente"] = info["tipo_fuente"]
+                    st.session_state["select_tipo_fuente"] = info["tipo_fuente"]
+
+                if info.get("tema_sugerido") in TEMAS_DISPONIBLES:
+                    st.session_state["in_tema"] = info["tema_sugerido"]
+
+                tags = info.get("tags_sugeridos", [])
+                if tags:
+                    tags_fmt = [formatear_tag(t) for t in tags if formatear_tag(t)]
+                    st.session_state["sugerencias_tags"] = tags_fmt[:10]
+
+                if info.get("resumen_clave") and not st.session_state.get("in_notas"):
+                    st.session_state["in_notas"] = f"Resumen IA: {info['resumen_clave'].strip()}"
+
+                return True, "¡Metadatos analizados y clasificados con Gemini 3.8 Flash!"
+        elif res.status_code == 429:
+            return False, "Cuota de Gemini ocupada temporalmente (429). Se usará el motor local."
+        else:
+            return False, f"Respuesta de Gemini: código {res.status_code}"
+    except Exception as e:
+        return False, f"Error al consultar Gemini API: {str(e)}"
+
+    return False, "No se pudo interpretar la respuesta de Gemini."
+
 def procesar_pdf_con_grobid(archivo_pdf_bytes):
     st.session_state["sugerencias_tags"] = []
     try:
@@ -1297,13 +1440,36 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
             on_change=al_cambiar_pdf
         )
         if archivo_pdf is not None:
-            if st.button("🚀 Analizar PDF con GROBID", type="secondary"):
-                with st.spinner("Procesando documento con el motor GROBID..."):
-                    bytes_data = archivo_pdf.read()
-                    exito, msg = procesar_pdf_con_grobid(bytes_data)
+            c_btn_pdf1, c_btn_pdf2 = st.columns([1, 1])
+            with c_btn_pdf1:
+                btn_analizar_auto = st.button("✨ Analizar con IA / Auto", type="primary", use_container_width=True)
+            with c_btn_pdf2:
+                btn_analizar_local = st.button("⚙️ Motor Local / Crossref", type="secondary", use_container_width=True)
 
-                    if not exito:
+            if btn_analizar_auto or btn_analizar_local:
+                with st.spinner("Analizando documento PDF..."):
+                    bytes_data = archivo_pdf.read()
+                    exito = False
+                    msg = ""
+
+                    api_key_activa = st.session_state.get("gemini_api_key", "")
+                    if not api_key_activa:
+                        try:
+                            api_key_activa = st.secrets.get("GEMINI_API_KEY", "")
+                        except Exception:
+                            pass
+
+                    # Si se presiona el botón de IA y hay clave disponible
+                    if btn_analizar_auto and api_key_activa:
+                        exito, msg = extraer_metadatos_con_gemini(bytes_data, api_key_activa)
+                        if not exito:
+                            st.info(f"{msg} -> Pasando al motor local con Crossref...")
+                            exito, msg = procesar_pdf_profundo(bytes_data)
+                    else:
+                        # Si no hay clave de Gemini o presionó motor local
                         exito, msg = procesar_pdf_profundo(bytes_data)
+                        if not exito:
+                            exito, msg = procesar_pdf_con_grobid(bytes_data)
 
                     if exito:
                         st.success(msg)
