@@ -172,6 +172,7 @@ def init_db():
         ("es_favorito", "INTEGER DEFAULT 0"),
         ("tags", "TEXT DEFAULT ''"),
         ("proyecto", "TEXT DEFAULT 'General'"),
+        ("tema", "TEXT DEFAULT 'General'"),
     ]
     for col_nombre, col_tipo in columnas_nuevas:
         try:
@@ -183,13 +184,13 @@ def init_db():
 
 init_db()
 
-def guardar_cita_db(autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente="General", es_favorito=0, tags="", proyecto="General"):
+def guardar_cita_db(autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente="General", es_favorito=0, tags="", proyecto="General", tema="General"):
     conn = sqlite3.connect("fuentes_apa.db")
     c = conn.cursor()
     c.execute("""
-        INSERT INTO citas (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags, proyecto)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags, proyecto))
+        INSERT INTO citas (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags, proyecto, tema)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags, proyecto, tema))
     conn.commit()
     conn.close()
 
@@ -199,7 +200,7 @@ def obtener_citas_db():
         SELECT id, autor, anio, titulo, fuente, url, 
                   cita_in_text AS 'Cita en Texto', 
                   cita_apa AS 'Referencia APA 7',
-                  tipo_fuente, es_favorito, tags, proyecto
+                  tipo_fuente, es_favorito, tags, proyecto, tema
            FROM citas ORDER BY id DESC
     """, conn)
     conn.close()
@@ -233,6 +234,14 @@ if "in_proyecto" not in st.session_state:
     st.session_state["in_proyecto"] = ""
 if "in_fav" not in st.session_state:
     st.session_state["in_fav"] = False
+if "in_tema" not in st.session_state:
+    st.session_state["in_tema"] = "General"
+
+TEMAS_DISPONIBLES = [
+    "General", "Estadística y Datos", "Ciencia y Metodología",
+    "Matemáticas", "Computación y Software", "Psicología y Ciencias Sociales",
+    "Salud y Medicina", "Humanidades y Filosofía", "Economía y Negocios", "Otro"
+]
 if "sugerencias_tags" not in st.session_state:
     st.session_state["sugerencias_tags"] = []
 if "input_extraer" not in st.session_state:
@@ -257,6 +266,7 @@ def limpiar_formulario():
             
     st.session_state["in_tipo_fuente"] = "Artículo de Revista"
     st.session_state["select_tipo_fuente"] = "Artículo de Revista"
+    st.session_state["in_tema"] = "General"
     st.session_state["sugerencias_tags"] = []
     
     if "last_referencia_apa" in st.session_state:
@@ -959,6 +969,18 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
             primera_pagina = pdf.pages[0]
             texto_completo = primera_pagina.extract_text() or ""
 
+            # 1. Búsqueda inteligente de DOI en el texto del PDF antes de heurísticas
+            match_doi = re.search(r"10\.\d{4,9}/[-._;()/:A-Za-z0-9]+", texto_completo)
+            if not match_doi and len(pdf.pages) > 1:
+                texto_p2 = pdf.pages[1].extract_text() or ""
+                match_doi = re.search(r"10\.\d{4,9}/[-._;()/:A-Za-z0-9]+", texto_p2)
+
+            if match_doi:
+                clean_doi = match_doi.group(0).rstrip(".,;)")
+                exito_doi, msg_doi = extraer_datos_doi(clean_doi)
+                if exito_doi:
+                    return True, f"¡DOI detectado ({clean_doi})! Metadatos extraídos de Crossref con precisión."
+
             palabras = primera_pagina.extract_words(
                 extra_attrs=["size", "fontname"], keep_blank_chars=False
             )
@@ -1079,13 +1101,14 @@ def accion_guardar():
     autor = st.session_state.get("in_autor", "")
     
     if not titulo.strip() and not autor.strip():
-        st.session_state["guardar_error"] = "Ingresa al menos el título o autor antes de guardar."
+        st.session_state["mensaje_alerta"] = ("error", "Ingresa al menos el título o autor antes de guardar.")
         return
 
     anio = st.session_state.get("in_anio", "")
     fuente = st.session_state.get("in_fuente", "")
     url = st.session_state.get("in_url", "")
     tipo = st.session_state.get("select_tipo_fuente", "Artículo de Revista")
+    tema = st.session_state.get("in_tema", "General")
     tags = st.session_state.get("in_tags", "")
     proyecto = st.session_state.get("in_proyecto", "")
     fav_int = 1 if st.session_state.get("in_fav", False) else 0
@@ -1123,12 +1146,13 @@ def accion_guardar():
     guardar_cita_db(
         autor=autor, anio=anio, titulo=titulo, fuente=fuente, url=url,
         cita_in_text=cita_in_text_val, cita_apa=cita_apa_val,
-        tipo_fuente=tipo, es_favorito=fav_int, tags=tags.strip(), proyecto=proj_final
+        tipo_fuente=tipo, es_favorito=fav_int, tags=tags.strip(),
+        proyecto=proj_final, tema=tema
     )
     
     limpiar_formulario()
     st.session_state["pestana_activa"] = "🔍 Mis Citas Guardadas"
-    st.session_state["guardar_exito"] = True
+    st.session_state["mensaje_alerta"] = ("toast", "¡Fuente guardada exitosamente!")
 
 
 # --- CONTROL DE NAVEGACIÓN DE PESTAÑAS ---
@@ -1139,6 +1163,14 @@ opcion_pestana = st.radio(
     key="pestana_activa",
     label_visibility="collapsed",
 )
+
+# Avisos y notificaciones persistentes entre pestañas
+if "mensaje_alerta" in st.session_state:
+    tipo_alerta, texto_alerta = st.session_state.pop("mensaje_alerta")
+    if tipo_alerta == "toast":
+        st.toast(texto_alerta, icon="✅")
+    elif tipo_alerta == "error":
+        st.error(texto_alerta)
 
 st.divider()
 
@@ -1253,10 +1285,13 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
         "Página Web", "Tesis / Monografía", "Video / Multimedia", "Otro"
     ]
 
-    c_tipo, c_proj, c_fav = st.columns([2, 2, 1])
+    c_tipo, c_tema, c_proj, c_fav = st.columns([2, 2, 2, 1])
 
     with c_tipo:
         tipo_fuente = st.selectbox("Tipo de fuente:", opciones_tipo, key="select_tipo_fuente")
+
+    with c_tema:
+        tema_fuente = st.selectbox("🎯 Tema / Disciplina:", TEMAS_DISPONIBLES, key="in_tema")
 
     with c_proj:
         proyecto_input = st.text_input("📁 Proyecto / Trabajo:", key="in_proyecto", placeholder="Ej: Tesis, Ensayo 1")
@@ -1288,12 +1323,6 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
 
     st.button("💾 Guardar en Base de Datos", key="btn_guardar_db", type="primary", use_container_width=True, on_click=accion_guardar)
 
-    if st.session_state.pop("guardar_exito", False):
-        st.toast("¡Fuente guardada exitosamente! Redirigiendo...", icon="✅")
-        
-    if "guardar_error" in st.session_state:
-        st.error(st.session_state.pop("guardar_error"))
-
 elif opcion_pestana == "🔍 Mis Citas Guardadas":
     st.subheader("🔍 Biblioteca de Fuentes Guardadas")
     df_citas = obtener_citas_db()
@@ -1313,10 +1342,14 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
         lista_tags_disponibles = sorted(list(todas_las_tags))
 
         with st.expander("🎛 Panel de Organización y Filtros Inteligentes", expanded=True):
-            col_proj, col_tipo = st.columns(2)
+            col_proj, col_tema, col_tipo = st.columns(3)
             with col_proj:
                 proyectos_disponibles = ["Todos"] + sorted(list(df_ordenado["proyecto"].dropna().unique()))
                 filtro_proyecto = st.selectbox("📁 Filtrar por Proyecto / Trabajo:", proyectos_disponibles)
+            with col_tema:
+                col_temas = df_ordenado["tema"].dropna().unique() if "tema" in df_ordenado.columns else []
+                temas_disponibles = ["Todos"] + sorted(list(col_temas))
+                filtro_tema = st.selectbox("🎯 Filtrar por Tema / Disciplina:", temas_disponibles)
             with col_tipo:
                 tipos_disponibles = ["Todos"] + sorted(list(df_ordenado["tipo_fuente"].dropna().unique()))
                 filtro_tipo = st.selectbox("📖 Filtrar por Tipo de fuente:", tipos_disponibles)
@@ -1337,6 +1370,9 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
 
         if filtro_proyecto != "Todos":
             df_filtrado = df_filtrado[df_filtrado["proyecto"] == filtro_proyecto]
+
+        if "tema" in df_filtrado.columns and filtro_tema != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["tema"] == filtro_tema]
 
         if filtro_tipo != "Todos":
             df_filtrado = df_filtrado[df_filtrado["tipo_fuente"] == filtro_tipo]
@@ -1414,10 +1450,12 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
                         st.markdown("**Cita en texto:**")
                         st.code(row["Cita en Texto"], language=None)
 
-                        c_det1, c_det2 = st.columns(2)
+                        c_det1, c_det2, c_det3 = st.columns(3)
                         with c_det1:
                             st.caption(f"📁 **Proyecto:** `{row.get('proyecto', 'General')}`")
                         with c_det2:
+                            st.caption(f"🎯 **Tema:** `{row.get('tema', 'General')}`")
+                        with c_det3:
                             st.caption(f"📌 **Tipo:** `{row.get('tipo_fuente', 'General')}`")
 
                         url_val = row.get("url")
