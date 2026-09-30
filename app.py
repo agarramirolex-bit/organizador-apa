@@ -75,7 +75,6 @@ def es_texto_valido(texto, min_caracteres=3):
     t = str(texto).strip()
     if len(t) < min_caracteres:
         return False
-    # Detectar palabras largas aleatorias sin vocales o secuencias caóticas (ej. ajsdhasdhashasd)
     palabras = t.split()
     for p in palabras:
         if len(p) >= 12:
@@ -128,14 +127,12 @@ def extraer_palabras_clave_texto(texto):
         return []
     sugerencias = []
     
-    # 1. Hashtags directos existentes
     hashtags_directos = re.findall(r"#(\w+)", texto)
     for h in hashtags_directos:
         tag_fmt = formatear_tag(h)
         if tag_fmt and tag_fmt not in sugerencias:
             sugerencias.append(tag_fmt)
 
-    # 2. Búsqueda de bigramas (conceptos de 2 palabras relevantes)
     palabras_raw = re.findall(r"\b[a-zA-ZáéíóúÁÉÍÓÚñÑ]{3,}\b", texto)
     for i in range(len(palabras_raw) - 1):
         p1, p2 = palabras_raw[i].lower(), palabras_raw[i+1].lower()
@@ -146,7 +143,6 @@ def extraer_palabras_clave_texto(texto):
             if len(sugerencias) >= 5:
                 break
 
-    # 3. Palabras individuales relevantes
     for p in palabras_raw:
         if p.lower() not in STOPWORDS:
             tag_fmt = formatear_tag(p)
@@ -222,7 +218,6 @@ def guardar_cita_db(autor, anio, titulo, fuente, url, cita_in_text, cita_apa, ti
     conn = sqlite3.connect("fuentes_apa.db", timeout=15)
     c = conn.cursor()
     
-    # Detector de duplicados en el mismo proyecto (por URL o por Título exacto)
     registro_existente = None
     if url and url.strip():
         c.execute("SELECT id FROM citas WHERE url = ? AND proyecto = ?", (url.strip(), proyecto.strip()))
@@ -311,9 +306,7 @@ def render_restaurar_backup_csv():
                     st.error(f"Error al importar el archivo CSV: {str(e)}")
 
 
-
-# --- INTERFAZ PRINCIPAL Y SESSION STATE ---
-# --- CONFIGURACIÓN DE IA EN SIDEBAR ---
+# --- CONFIGURACIÓN DE IA Y NAVEGACIÓN EN SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Configuración")
     st.markdown("### 🤖 Motor de IA Gemini")
@@ -339,6 +332,12 @@ with st.sidebar:
         st.caption("ℹ️ Sin clave: Se usará el motor local + Crossref (100% gratuito).")
     
     st.divider()
+    st.markdown("### 🧭 Menú Principal")
+    opcion_pestana = st.radio(
+        "Selecciona una sección:",
+        ["➕ Crear Cita y Referencia", "🔍 Mis Citas Guardadas"],
+        key="pestana_activa"
+    )
 
 st.title("📚 Organizador de Fuentes y Generador APA 7")
 st.write(
@@ -382,13 +381,9 @@ if "input_extraer" not in st.session_state:
     st.session_state["input_extraer"] = ""
 if "_input_extraer_tenia_contenido" not in st.session_state:
     st.session_state["_input_extraer_tenia_contenido"] = False
-if "pestana_activa" not in st.session_state:
-    st.session_state["pestana_activa"] = "➕ Crear Cita y Referencia"
 
 
 def limpiar_formulario():
-    # Se modifican los campos de manera segura; como esta función ahora solo 
-    # se llamará dentro de callbacks (on_change o on_click), no lanzará el error.
     keys_string = [
         "in_autor", "in_anio", "in_titulo", "in_fuente", 
         "in_url", "in_tags", "input_extraer", "in_proyecto", "in_notas"
@@ -452,8 +447,6 @@ def actualizar_tipo_al_tipear():
 def al_cambiar_input_extraer():
     texto_actual = st.session_state.get("input_extraer", "").strip()
     if not texto_actual:
-        # Solo limpiar si había datos extraídos (título relleno) y el usuario borró la URL
-        # Así evitamos limpiar al simplemente cambiar de pestaña o recargar la página
         if st.session_state.get("_input_extraer_tenia_contenido"):
             limpiar_formulario()
         st.session_state["_input_extraer_tenia_contenido"] = False
@@ -462,8 +455,6 @@ def al_cambiar_input_extraer():
         actualizar_tipo_al_tipear()
 
 def al_cambiar_pdf():
-    # Limpiar solo si el PDF se descartó y había datos extraídos de él (título relleno)
-    # Así evitamos limpiar al simplemente entrar a la página sin haber analizado nada
     if st.session_state.get("uploader_pdf") is None:
         if st.session_state.get("in_titulo", "").strip() or st.session_state.get("in_autor", "").strip():
             limpiar_formulario()
@@ -471,7 +462,6 @@ def al_cambiar_pdf():
 
 def procesar_autores_y_citas(autor_str, titulo_str, anio_str):
     anio_clean = anio_str.strip()
-    # Si el año contiene solo letras o texto basura sin dígitos válidos, normalizar a s. f.
     if anio_clean and not re.search(r"\b(18\d{2}|19\d{2}|20[0-3]\d)\b", anio_clean) and "s. f." not in anio_clean.lower():
         anio_clean = "s. f."
     anio_ref = f"({anio_clean})" if anio_clean else "(s. f.)"
@@ -550,7 +540,7 @@ def normalizar_fecha_apa(fecha_str):
         "april": "abril", "apr": "abril",
         "may": "mayo",
         "june": "junio", "jun": "junio",
-        "july": "july", "jul": "julio", "july": "julio",
+        "july": "julio", "jul": "julio",
         "august": "agosto", "aug": "agosto",
         "september": "septiembre", "sep": "septiembre",
         "october": "octubre", "oct": "octubre",
@@ -726,7 +716,6 @@ def extraer_datos_isbn(isbn_input):
                 if not st.session_state.get("in_fuente"):
                     st.session_state["in_fuente"] = book.get("publisher", "")
 
-                # Extraer categorías temáticas oficiales de Google Books
                 categories = book.get("categories", [])
                 for cat in categories:
                     partes_cat = re.split(r"[/,]", cat)
@@ -1117,7 +1106,7 @@ def extraer_metadatos_con_gemini(bytes_pdf, api_key):
                 if info.get("doi_o_url"):
                     doi_val = info["doi_o_url"].strip()
                     if "10." in doi_val and not doi_val.startswith("http"):
-                        doi_val = f"https://doi.org/{doi_val}"
+                        doi_val = f"[https://doi.org/](https://doi.org/){doi_val}"
                     st.session_state["in_url"] = doi_val
                 
                 tipos_validos = [
@@ -1135,9 +1124,6 @@ def extraer_metadatos_con_gemini(bytes_pdf, api_key):
                 if tags:
                     tags_fmt = [formatear_tag(t) for t in tags if formatear_tag(t)]
                     st.session_state["sugerencias_tags"] = tags_fmt[:10]
-
-                # El resumen de Gemini se omite en notas para que el usuario decida qué anotar
-                # (info["resumen_clave"] disponible internamente si se necesita en el futuro)
 
                 return True, "¡Metadatos analizados y clasificados con Gemini 3.8 Flash!"
         elif res.status_code == 429:
@@ -1162,7 +1148,7 @@ def procesar_pdf_con_grobid(archivo_pdf_bytes):
 
         xml_data = response.text
         root = ET.fromstring(xml_data)
-        ns = {"tei": "http://www.tei-c.org/ns/1.0"}
+        ns = {"tei": "[http://www.tei-c.org/ns/1.0](http://www.tei-c.org/ns/1.0)"}
 
         title_node = root.find(".//tei:titleStmt/tei:title", ns)
         titulo = title_node.text.strip() if title_node is not None and title_node.text else ""
@@ -1192,7 +1178,7 @@ def procesar_pdf_con_grobid(archivo_pdf_bytes):
         doi_node = root.find('.//tei:idno[@type="DOI"]', ns)
         url = ""
         if doi_node is not None and doi_node.text:
-            url = f"https://doi.org/{doi_node.text.strip()}"
+            url = f"[https://doi.org/](https://doi.org/){doi_node.text.strip()}"
 
         sug_grobid = []
         for kw_node in root.findall(".//tei:profileDesc/tei:textClass/tei:keywords/tei:term", ns):
@@ -1259,7 +1245,6 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
             texto_p1 = primera_pagina.extract_text() or ""
             texto_completo = texto_p1
 
-            # 1. Búsqueda inteligente de DOI en el texto del PDF (página 1 y 2)
             match_doi = re.search(r"10\.\d{4,9}/[-._;()/:A-Za-z0-9]+", texto_completo)
             if not match_doi and len(pdf.pages) > 1:
                 texto_p2 = pdf.pages[1].extract_text() or ""
@@ -1272,7 +1257,6 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
                 if exito_doi:
                     return True, f"¡DOI detectado ({clean_doi})! Metadatos extraídos de Crossref con precisión."
 
-            # 2. Revisión de metadatos nativos internos del PDF
             meta = pdf.metadata or {}
             meta_titulo = str(meta.get("Title", "")).strip()
             meta_autor = str(meta.get("Author", "")).strip()
@@ -1281,7 +1265,6 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
             if meta_titulo and len(meta_titulo) > 8 and not re.search(r"(untitled|microsoft word|scan|document)", meta_titulo, re.IGNORECASE):
                 titulo_candidato = meta_titulo
 
-            # 3. Heurística visual de bloques de texto por tamaño
             palabras = primera_pagina.extract_words(
                 extra_attrs=["size", "fontname"], keep_blank_chars=False
             )
@@ -1332,24 +1315,21 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
                 max_size = max(b["size"] for b in candidatos_t)
 
                 lineas_titulo = []
-                indice_fin_tit = 0
                 for idx, b in enumerate(candidatos_t):
                     if abs(b["size"] - max_size) <= 1.5 and len(b["texto"]) > 3:
                         lineas_titulo.append(b["texto"])
-                        indice_fin_tit = idx
                     elif lineas_titulo:
                         break
                 titulo_candidato = " ".join(lineas_titulo).strip()
 
             titulo_final = titulo_candidato if titulo_candidato else "Documento PDF"
 
-            # 4. Búsqueda inversa en Crossref por título
             crossref_encontrado = False
             if len(titulo_final) > 15 and len(titulo_final.split()) >= 3:
                 try:
                     q_clean = requests.utils.quote(titulo_final[:120])
                     res_cr = requests.get(
-                        f"https://api.crossref.org/works?query.title={q_clean}&rows=1",
+                        f"[https://api.crossref.org/works?query.title=](https://api.crossref.org/works?query.title=){q_clean}&rows=1",
                         headers={"User-Agent": "APA_Tool/1.0"},
                         timeout=5
                     )
@@ -1379,7 +1359,7 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
                                     st.session_state["in_anio"] = str(p_date["date-parts"][0][0])
 
                                 if "DOI" in top_item:
-                                    st.session_state["in_url"] = f"https://doi.org/{top_item['DOI']}"
+                                    st.session_state["in_url"] = f"[https://doi.org/](https://doi.org/){top_item['DOI']}"
 
                                 crossref_encontrado = True
                 except Exception:
@@ -1428,7 +1408,6 @@ def accion_guardar():
         st.session_state["mensaje_alerta"] = ("error", "Ingresa al menos el título o autor antes de guardar.")
         return
 
-    # Sello de seguridad anti-basura (evitar cadenas aleatorias como ajsdhasdhashasd)
     if titulo and not es_texto_valido(titulo, min_caracteres=3):
         st.session_state["mensaje_alerta"] = ("error", "El título ingresado parece inválido o texto de prueba aleatorio. Por favor ingresa un título legible.")
         return
@@ -1447,7 +1426,6 @@ def accion_guardar():
     notas = st.session_state.get("in_notas", "").strip()
     fav_int = 1 if st.session_state.get("in_fav", False) else 0
 
-    # Limpieza, formateo y deduplicación de etiquetas
     tags_limpias = []
     tags_vistas = set()
     for t_item in tags_raw.split(","):
@@ -1489,7 +1467,6 @@ def accion_guardar():
 
     proj_final = proyecto if proyecto else "General"
 
-    # Guardar en base de datos con detección de duplicados
     res_db = guardar_cita_db(
         autor=autor, anio=anio, titulo=titulo, fuente=fuente, url=url,
         cita_in_text=cita_in_text_val, cita_apa=cita_apa_val,
@@ -1505,84 +1482,16 @@ def accion_guardar():
         st.session_state["mensaje_alerta"] = ("toast", "¡Fuente guardada exitosamente!")
 
 
-elif opcion_pestana == "🔍 Mis Citas Guardadas":
-    st.subheader("🔍 Biblioteca de Fuentes Guardadas")
-    df_citas = obtener_citas_db()
-
-    if df_citas.empty:
-        st.info("Aún no has guardado ninguna cita en la base de datos.")
-        render_restaurar_backup_csv()
-    else:
-        # 1. Filtros principales de proyecto y búsqueda (manteniendo tu lógica actual)
-        proyectos_disponibles = ["Todos"] + sorted(list(df_citas["proyecto"].dropna().unique()))
-        filtro_proyecto = st.selectbox("📁 Seleccionar Proyecto Principal:", proyectos_disponibles)
-
-        df_filtrado = df_citas.copy()
-        if filtro_proyecto != "Todos":
-            df_filtrado = df_filtrado[df_filtrado["proyecto"] == filtro_proyecto]
-
-        st.divider()
-
-        # 2. Organización por Subcarpetas basadas en el Tipo de Fuente
-        # Tipos estándar que manejas: Libros, Artículos, Videos, Páginas Web, etc.
-        tipos_presentes = sorted(list(df_filtrado["tipo_fuente"].dropna().unique()))
-
-        if not tipos_presentes:
-            st.warning("No hay fuentes con tipos definidos en este proyecto.")
-        else:
-            # Creamos pestañas o expansores anidados simlando subcarpetas
-            tabs_subcarpetas = st.tabs([f"📂 {tipo}" for tipo in tipos_presentes])
-
-            for idx, tipo_fuente in enumerate(tipos_presentes):
-                with tabs_subcarpetas[idx]:
-                    df_sub = df_filtrado[df_filtrado["tipo_fuente"] == tipo_fuente]
-                    st.caption(f"Mostrando **{len(df_sub)}** elementos en la subcarpeta: **{tipo_fuente}**")
-
-                    for _, row in df_sub.iterrows():
-                        es_fav = "⭐ " if row.get("es_favorito") == 1 else ""
-                        autor_head = row["autor"] if pd.notna(row["autor"]) and row["autor"] else "Sin autor"
-                        anio_head = f"({row['anio']})" if pd.notna(row["anio"]) and row["anio"] else "(s. f.)"
-                        titulo_head = str(row["titulo"])[:40] + "..." if len(str(row["titulo"])) > 40 else str(row["titulo"])
-
-                        expander_label = f"{es_fav}📖 {autor_head} {anio_head} — {titulo_head}"
-
-                        with st.expander(expander_label):
-                            col_info, col_del = st.columns([4, 1])
-
-                            with col_info:
-                                st.markdown("**Referencia APA 7:**")
-                                st.code(row["Referencia APA 7"], language=None)
-                                st.markdown("**Cita en texto:**")
-                                st.code(row["Cita en Texto"], language=None)
-                                
-                                if pd.notna(row.get("tags")) and str(row.get("tags")).strip():
-                                    st.caption(f"🏷 **Tags:** `{row['tags']}`")
-                                
-                                url_val = row.get("url")
-                                if pd.notna(url_val) and str(url_val).strip():
-                                    st.caption(f"🔗 **Enlace:** [{url_val}]({url_val})")
-
-                            with col_del:
-                                if st.button("🗑️ Eliminar", key=f"sub_del_{row['id']}", type="secondary"):
-                                    conn = sqlite3.connect("fuentes_apa.db")
-                                    c = conn.cursor()
-                                    c.execute("DELETE FROM citas WHERE id = ?", (row["id"],))
-                                    conn.commit()
-                                    conn.close()
-                                    st.toast("Fuente eliminada correctamente.", icon="🗑️")
-                                    st.rerun()
-
-# Avisos y notificaciones persistentes entre pestañas
-if "mensaje_alerta" in st.session_state:
-    tipo_alerta, texto_alerta = st.session_state.pop("mensaje_alerta")
-    if tipo_alerta == "toast":
-        st.toast(texto_alerta, icon="✅")
-    elif tipo_alerta == "error":
-        st.error(texto_alerta)
-
-st.divider()
-
+# --- GESTIÓN DE PESTAÑAS PRINCIPALES ---
 if opcion_pestana == "➕ Crear Cita y Referencia":
+    # Avisos y notificaciones persistentes entre pestañas
+    if "mensaje_alerta" in st.session_state:
+        tipo_alerta, texto_alerta = st.session_state.pop("mensaje_alerta")
+        if tipo_alerta == "toast":
+            st.toast(texto_alerta, icon="✅")
+        elif tipo_alerta == "error":
+            st.error(texto_alerta)
+
     st.subheader("1. Extraer datos automáticamente")
 
     input_busqueda = st.text_input(
@@ -1638,7 +1547,6 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
                         except Exception:
                             pass
 
-                    # Prioridad 1: IA con Gemini 3.8 Flash si hay clave
                     if api_key_activa:
                         exito_gem, msg_gem = extraer_metadatos_con_gemini(bytes_data, api_key_activa)
                         if exito_gem:
@@ -1650,7 +1558,6 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
                             exito, msg = procesar_pdf_profundo(bytes_data)
                             motor_usado = "local"
                     else:
-                        # Prioridad 2: Motor local reforzado con Crossref y metadatos nativos
                         exito, msg = procesar_pdf_profundo(bytes_data)
                         if not exito:
                             exito, msg = procesar_pdf_con_grobid(bytes_data)
@@ -1660,7 +1567,7 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
                         if motor_usado == "ia":
                             st.toast("✨ Analizado con IA (Gemini 3.8 Flash)", icon="🤖")
                         else:
-                            st.toast("⚙️ Analizado con Motor Local (Crossref)", icon="📚")
+                            st.toast("⚙️️ Analizado con Motor Local (Crossref)", icon="📚")
                         st.success(msg)
                         st.rerun()
                     else:
@@ -1702,255 +1609,3 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
             partes_ref.append(f"{anio_ref}.")
 
         if ref_autores and titulo_in.strip():
-            if "YouTube" in fuente_in:
-                partes_ref.append(f"{titulo_in.strip()}.")
-            else:
-                partes_ref.append(f"*{titulo_in.strip()}*.")
-
-        if fuente_in.strip():
-            partes_ref.append(f"{fuente_in.strip()}.")
-        if url_in.strip():
-            partes_ref.append(url_in.strip())
-
-        referencia_final = " ".join(partes_ref)
-        st.code(referencia_final, language=None)
-
-        st.session_state["last_cita_in_text"] = f"Par: {cita_par} | Nar: {cita_nar}"
-        st.session_state["last_referencia_apa"] = referencia_final
-
-    st.divider()
-    st.subheader("📌 Guardar en la Biblioteca y Proyectos")
-
-    opciones_tipo = [
-        "Artículo de Revista", "Libro", "Capítulo de Libro",
-        "Página Web", "Tesis / Monografía", "Video / Multimedia", "Otro"
-    ]
-
-    c_tipo, c_tema, c_proj, c_fav = st.columns([2, 2, 2, 1])
-
-    with c_tipo:
-        tipo_fuente = st.selectbox("Tipo de fuente:", opciones_tipo, key="select_tipo_fuente")
-
-    with c_tema:
-        tema_fuente = st.selectbox("🎯 Tema / Disciplina:", TEMAS_DISPONIBLES, key="in_tema")
-
-    with c_proj:
-        proyecto_input = st.text_input("📁 Proyecto / Trabajo:", key="in_proyecto", placeholder="Ej: Tesis, Ensayo 1")
-
-    with c_fav:
-        st.write("")
-        st.write("")
-        es_fav = st.checkbox("⭐ Favorito", key="in_fav")
-
-    tags_input = st.text_input(
-        "🏷 Etiquetas / Tags (separadas por coma):",
-        key="in_tags",
-        placeholder="Ej: #Psicometria, #Evaluacion, #Psicologia",
-    )
-
-    notas_input = st.text_area(
-        "📝 Notas personales / Cita textual clave (Opcional):",
-        key="in_notas",
-        placeholder="Ej: Pág. 34: 'La estadística descriptiva organiza los datos...', o ideas clave para mi tesis.",
-        height=80,
-    )
-
-    sugerencias = st.session_state.get("sugerencias_tags", [])
-    if sugerencias:
-        st.caption("💡 **Sugerencias detectadas (haz clic para agregar):**")
-        cols_sug = st.columns(min(len(sugerencias), 5))
-        for idx, tag in enumerate(sugerencias):
-            col_idx = idx % min(len(sugerencias), 5)
-            with cols_sug[col_idx]:
-                st.button(
-                    tag,
-                    key=f"btn_sug_{idx}",
-                    on_click=agregar_tag_sugerido,
-                    args=(tag,),
-                )
-
-    # Mostrar etiquetas más utilizadas en la biblioteca como atajos rápidos
-    try:
-        df_hist = obtener_citas_db()
-        if not df_hist.empty and "tags" in df_hist.columns:
-            tags_conteo = {}
-            for t_raw in df_hist["tags"].dropna():
-                for t_item in str(t_raw).split(","):
-                    t_clean = t_item.strip()
-                    if t_clean:
-                        tags_conteo[t_clean] = tags_conteo.get(t_clean, 0) + 1
-            if tags_conteo:
-                tags_top = sorted(tags_conteo.items(), key=lambda x: x[1], reverse=True)[:6]
-                st.caption("⭐ **Tus etiquetas más frecuentes:**")
-                cols_top = st.columns(len(tags_top))
-                for idx_top, (tag_top, _) in enumerate(tags_top):
-                    with cols_top[idx_top]:
-                        st.button(
-                            f"{tag_top}",
-                            key=f"btn_top_{idx_top}",
-                            on_click=agregar_tag_sugerido,
-                            args=(tag_top,),
-                        )
-    except Exception:
-        pass
-
-    st.button("💾 Guardar en Base de Datos", key="btn_guardar_db", type="primary", use_container_width=True, on_click=accion_guardar)
-
-elif opcion_pestana == "🔍 Mis Citas Guardadas":
-    st.subheader("🔍 Biblioteca de Fuentes Guardadas")
-    df_citas = obtener_citas_db()
-
-    if df_citas.empty:
-        st.info("Aún no has guardado ninguna cita en la base de datos.")
-        render_restaurar_backup_csv()
-    else:
-        df_citas["autor_sort"] = df_citas["autor"].fillna(df_citas["titulo"])
-        df_ordenado = df_citas.sort_values(by="autor_sort", ascending=True).drop(columns=["autor_sort"])
-
-        todas_las_tags = set()
-        for t_str in df_ordenado["tags"].dropna():
-            for t in str(t_str).split(","):
-                clean_t = t.strip()
-                if clean_t:
-                    todas_las_tags.add(clean_t)
-        lista_tags_disponibles = sorted(list(todas_las_tags))
-
-        with st.expander("🎛 Panel de Organización y Filtros Inteligentes", expanded=True):
-            col_proj, col_tema, col_tipo = st.columns(3)
-            with col_proj:
-                proyectos_disponibles = ["Todos"] + sorted(list(df_ordenado["proyecto"].dropna().unique()))
-                filtro_proyecto = st.selectbox("📁 Filtrar por Proyecto / Trabajo:", proyectos_disponibles)
-            with col_tema:
-                col_temas = df_ordenado["tema"].dropna().unique() if "tema" in df_ordenado.columns else []
-                temas_disponibles = ["Todos"] + sorted(list(col_temas))
-                filtro_tema = st.selectbox("🎯 Filtrar por Tema / Disciplina:", temas_disponibles)
-            with col_tipo:
-                tipos_disponibles = ["Todos"] + sorted(list(df_ordenado["tipo_fuente"].dropna().unique()))
-                filtro_tipo = st.selectbox("📖 Filtrar por Tipo de fuente:", tipos_disponibles)
-
-            col_search, col_tags_filter = st.columns([1, 1])
-            with col_search:
-                busqueda = st.text_input("🔎 Búsqueda general (Autor, Título, Revista):", key="search_db")
-            with col_tags_filter:
-                filtro_tags = st.multiselect("🏷️ Filtrar por Etiquetas:", lista_tags_disponibles)
-
-            col_fav, col_vista = st.columns([1, 1])
-            with col_fav:
-                solo_favs = st.checkbox("⭐ Mostrar solo favoritos")
-            with col_vista:
-                modo_vista = st.radio("Vista:", ["Tarjetas", "Tabla"], horizontal=True)
-
-        df_filtrado = df_ordenado.copy()
-
-        if filtro_proyecto != "Todos":
-            df_filtrado = df_filtrado[df_filtrado["proyecto"] == filtro_proyecto]
-
-        if "tema" in df_filtrado.columns and filtro_tema != "Todos":
-            df_filtrado = df_filtrado[df_filtrado["tema"] == filtro_tema]
-
-        if filtro_tipo != "Todos":
-            df_filtrado = df_filtrado[df_filtrado["tipo_fuente"] == filtro_tipo]
-
-        if solo_favs:
-            df_filtrado = df_filtrado[df_filtrado["es_favorito"] == 1]
-
-        if busqueda:
-            mask_busqueda = (
-                df_filtrado["titulo"].astype(str).str.contains(busqueda, case=False, na=False)
-                | df_filtrado["autor"].astype(str).str.contains(busqueda, case=False, na=False)
-                | df_filtrado["anio"].astype(str).str.contains(busqueda, case=False, na=False)
-                | df_filtrado["tags"].astype(str).str.contains(busqueda, case=False, na=False)
-                | (df_filtrado["notas"].astype(str).str.contains(busqueda, case=False, na=False) if "notas" in df_filtrado.columns else False)
-            )
-            df_filtrado = df_filtrado[mask_busqueda]
-
-        if filtro_tags:
-            def tiene_tags_seleccionados(tags_row):
-                if not pd.notna(tags_row):
-                    return False
-                tags_en_fila = [t.strip() for t in str(tags_row).split(",")]
-                return any(tag in tags_en_fila for tag in filtro_tags)
-            
-            df_filtrado = df_filtrado[df_filtrado["tags"].apply(tiene_tags_seleccionados)]
-
-        st.caption(f"Mostrando **{len(df_filtrado)}** de **{len(df_citas)}** fuentes en total.")
-
-        col_txt, col_csv = st.columns(2)
-        bibliografia_completa = "\n\n".join(df_filtrado["Referencia APA 7"].dropna().tolist())
-
-        with col_txt:
-            st.download_button(
-                label="📄 Exportar Bibliografía (.TXT)",
-                data=bibliografia_completa,
-                file_name="bibliografia_filtrada.txt",
-                mime="text/plain",
-                use_container_width=True,
-            )
-        with col_csv:
-            csv_data = df_filtrado.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="📊 Exportar Resultados (.CSV)",
-                data=csv_data,
-                file_name="citas_filtradas.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
-
-        render_restaurar_backup_csv()
-
-        st.divider()
-
-        if modo_vista == "Tabla":
-            st.dataframe(df_filtrado, use_container_width=True)
-
-        else:
-            for _, row in df_filtrado.iterrows():
-                es_fav = "⭐ " if row.get("es_favorito") == 1 else ""
-                proj_tag = f"📂 [{row.get('proyecto', 'General')}] " if pd.notna(row.get('proyecto')) else ""
-                autor_head = row["autor"] if pd.notna(row["autor"]) and row["autor"] else "Sin autor"
-                anio_head = f"({row['anio']})" if pd.notna(row["anio"]) and row["anio"] else "(s. f.)"
-                titulo_head = (
-                    str(row["titulo"])[:40] + "..."
-                    if len(str(row["titulo"])) > 40
-                    else str(row["titulo"])
-                )
-
-                expander_label = f"{es_fav}{proj_tag}📖 {autor_head} {anio_head} — {titulo_head}"
-
-                with st.expander(expander_label):
-                    col_info, col_del = st.columns([4, 1])
-
-                    with col_info:
-                        st.markdown("**Referencia APA 7:**")
-                        st.code(row["Referencia APA 7"], language=None)
-
-                        st.markdown("**Cita en texto:**")
-                        st.code(row["Cita en Texto"], language=None)
-
-                        c_det1, c_det2, c_det3 = st.columns(3)
-                        with c_det1:
-                            st.caption(f"📁 **Proyecto:** `{row.get('proyecto', 'General')}`")
-                        with c_det2:
-                            st.caption(f"🎯 **Tema:** `{row.get('tema', 'General')}`")
-                        with c_det3:
-                            st.caption(f"📌 **Tipo:** `{row.get('tipo_fuente', 'General')}`")
-
-                        url_val = row.get("url")
-                        if pd.notna(url_val) and str(url_val).strip():
-                            st.caption(f"🔗 **Enlace:** [{url_val}]({url_val})")
-
-                        if pd.notna(row.get("tags")) and str(row.get("tags")).strip():
-                            st.caption(f"🏷 **Tags:** `{row['tags']}`")
-
-                        if "notas" in row and pd.notna(row.get("notas")) and str(row.get("notas")).strip():
-                            st.info(f"📝 **Nota personal / Cita clave:**\n\n{row['notas']}")
-
-                    with col_del:
-                        if st.button("🗑️ Eliminar", key=f"del_{row['id']}", type="secondary"):
-                            conn = sqlite3.connect("fuentes_apa.db")
-                            c = conn.cursor()
-                            c.execute("DELETE FROM citas WHERE id = ?", (row["id"],))
-                            conn.commit()
-                            conn.close()
-                            st.toast("Fuente eliminada correctamente.", icon="🗑️")
-                            st.rerun()
