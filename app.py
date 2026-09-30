@@ -1226,7 +1226,7 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
         es_fav = st.checkbox("⭐ Favorito")
 
     tags_input = st.text_input(
-        "🏷️ Etiquetas / Tags (separadas por coma):",
+        "🏷️️ Etiquetas / Tags (separadas por coma):",
         key="in_tags",
         placeholder="Ej: #Psicometria, #Evaluacion, #Psicologia",
     )
@@ -1401,7 +1401,7 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
                 es_fav = "⭐ " if row.get("es_favorito") == 1 else ""
                 proj_tag = f"📂 [{row.get('proyecto', 'General')}] " if pd.notna(row.get('proyecto')) else ""
                 autor_head = row["autor"] if pd.notna(row["autor"]) and row["autor"] else "Sin autor"
-                anio_head = f"({row['anio'])" if pd.notna(row["anio"]) and row["anio"] else "(s. f.)"
+                anio_head = f"({row['anio']})" if pd.notna(row["anio"]) and row["anio"] else "(s. f.)"
                 titulo_head = (
                     str(row["titulo"])[:40] + "..."
                     if len(str(row["titulo"])) > 40
