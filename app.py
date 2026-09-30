@@ -263,16 +263,15 @@ if "pestana_activa" not in st.session_state:
 
 
 def limpiar_formulario():
-    # En lugar de vaciar las keys directamente si ya están instanciadas, 
-    # podemos usar valores por defecto o vaciar las keys de forma segura 
-    # asegurándonos de que se recargue la app o limpiando el input_extraer.
     keys_a_limpiar = [
         "in_autor", "in_anio", "in_titulo", "in_fuente", 
         "in_url", "in_tags", "input_extraer"
     ]
     for key in keys_a_limpiar:
         if key in st.session_state:
-            st.session_state[key] = ""
+            # En lugar de asignar "", eliminamos la key del state 
+            # para que el widget se reinicie limpio en el próximo render
+            del st.session_state[key]
             
     st.session_state["in_tipo_fuente"] = "Artículo de Revista"
     st.session_state["select_tipo_fuente"] = "Artículo de Revista"
@@ -282,6 +281,9 @@ def limpiar_formulario():
         del st.session_state["last_referencia_apa"]
     if "last_cita_in_text" in st.session_state:
         del st.session_state["last_cita_in_text"]
+    
+    # Forzar un re-ejecución limpia si se llama desde un botón
+    # st.rerun()
 def agregar_tag_sugerido(tag_a_agregar):
     actuales = [
         t.strip()
@@ -1289,7 +1291,7 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
                 cita_apa=cita_apa_val, tipo_fuente=tipo_fuente,
                 es_favorito=fav_int, tags=tags_input.strip(), proyecto=proj_final,
             )
-
+limpiar_formulario()
             st.session_state["pestana_activa"] = "🔍 Mis Citas Guardadas"
             st.toast("¡Fuente guardada exitosamente! Redirigiendo...", icon="✅")
             st.rerun()
