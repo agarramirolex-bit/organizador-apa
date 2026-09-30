@@ -269,8 +269,6 @@ def limpiar_formulario():
     ]
     for key in keys_a_limpiar:
         if key in st.session_state:
-            # En lugar de asignar "", eliminamos la key del state 
-            # para que el widget se reinicie limpio en el próximo render
             del st.session_state[key]
             
     st.session_state["in_tipo_fuente"] = "Artículo de Revista"
@@ -281,9 +279,8 @@ def limpiar_formulario():
         del st.session_state["last_referencia_apa"]
     if "last_cita_in_text" in st.session_state:
         del st.session_state["last_cita_in_text"]
-    
-    # Forzar un re-ejecución limpia si se llama desde un botón
-    # st.rerun()
+
+
 def agregar_tag_sugerido(tag_a_agregar):
     actuales = [
         t.strip()
@@ -394,8 +391,6 @@ def procesar_autores_y_citas(autor_str, titulo_str, anio_str):
 
 # --- NORMALIZADOR DE FECHAS APA 7 (ESPAÑOL) ---
 def normalizar_fecha_apa(fecha_str):
-    """Convierte cualquier formato de fecha (año, año-mes, o fecha completa) 
-    a las normas APA 7 en español (Ej: '2023', 'mayo de 2023', o '12 de mayo de 2023')."""
     if not fecha_str:
         return ""
     
@@ -1231,7 +1226,7 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
         es_fav = st.checkbox("⭐ Favorito")
 
     tags_input = st.text_input(
-        "🏷️️ Etiquetas / Tags (separadas por coma):",
+        "🏷 Etiquetas / Tags (separadas por coma):",
         key="in_tags",
         placeholder="Ej: #Psicometria, #Evaluacion, #Psicologia",
     )
@@ -1291,7 +1286,7 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
                 cita_apa=cita_apa_val, tipo_fuente=tipo_fuente,
                 es_favorito=fav_int, tags=tags_input.strip(), proyecto=proj_final,
             )
-limpiar_formulario()
+            limpiar_formulario()
             st.session_state["pestana_activa"] = "🔍 Mis Citas Guardadas"
             st.toast("¡Fuente guardada exitosamente! Redirigiendo...", icon="✅")
             st.rerun()
@@ -1308,7 +1303,6 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
         df_citas["autor_sort"] = df_citas["autor"].fillna(df_citas["titulo"])
         df_ordenado = df_citas.sort_values(by="autor_sort", ascending=True).drop(columns=["autor_sort"])
 
-        # --- EXTRACCIÓN DE TODAS LAS ETIQUETAS ÚNICAS PARA FILTRADO INTELIGENTE ---
         todas_las_tags = set()
         for t_str in df_ordenado["tags"].dropna():
             for t in str(t_str).split(","):
@@ -1340,19 +1334,15 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
 
         df_filtrado = df_ordenado.copy()
 
-        # Aplicar Filtro de Proyecto
         if filtro_proyecto != "Todos":
             df_filtrado = df_filtrado[df_filtrado["proyecto"] == filtro_proyecto]
 
-        # Aplicar Filtro de Tipo de Fuente
         if filtro_tipo != "Todos":
             df_filtrado = df_filtrado[df_filtrado["tipo_fuente"] == filtro_tipo]
 
-        # Aplicar Filtro de Favoritos
         if solo_favs:
             df_filtrado = df_filtrado[df_filtrado["es_favorito"] == 1]
 
-        # Aplicar Búsqueda General de Texto
         if busqueda:
             mask_busqueda = (
                 df_filtrado["titulo"].astype(str).str.contains(busqueda, case=False, na=False)
@@ -1362,7 +1352,6 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
             )
             df_filtrado = df_filtrado[mask_busqueda]
 
-        # Aplicar Filtro de Etiquetas Múltiples
         if filtro_tags:
             def tiene_tags_seleccionados(tags_row):
                 if not pd.notna(tags_row):
