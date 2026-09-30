@@ -1567,7 +1567,7 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
                         if motor_usado == "ia":
                             st.toast("✨ Analizado con IA (Gemini 3.8 Flash)", icon="🤖")
                         else:
-                            st.toast("⚙️️ Analizado con Motor Local (Crossref)", icon="📚")
+                            st.toast("⚙ Analizado con Motor Local (Crossref)", icon="📚")
                         st.success(msg)
                         st.rerun()
                     else:
@@ -1609,3 +1609,261 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
             partes_ref.append(f"{anio_ref}.")
 
         if ref_autores and titulo_in.strip():
+            if "YouTube" in fuente_in:
+                partes_ref.append(f"{titulo_in.strip()}.")
+            else:
+                partes_ref.append(f"*{titulo_in.strip()}*.")
+
+        if fuente_in.strip():
+            partes_ref.append(f"{fuente_in.strip()}.")
+        if url_in.strip():
+            partes_ref.append(url_in.strip())
+
+        referencia_final = " ".join(partes_ref)
+        st.code(referencia_final, language=None)
+
+        st.session_state["last_cita_in_text"] = f"Par: {cita_par} | Nar: {cita_nar}"
+        st.session_state["last_referencia_apa"] = referencia_final
+
+    st.divider()
+    st.subheader("📌 Guardar en la Biblioteca y Proyectos")
+
+    opciones_tipo = [
+        "Artículo de Revista", "Libro", "Capítulo de Libro",
+        "Página Web", "Tesis / Monografía", "Video / Multimedia", "Otro"
+    ]
+
+    c_tipo, c_tema, c_proj, c_fav = st.columns([2, 2, 2, 1])
+
+    with c_tipo:
+        tipo_fuente = st.selectbox("Tipo de fuente:", opciones_tipo, key="select_tipo_fuente")
+
+    with c_tema:
+        tema_fuente = st.selectbox("🎯 Tema / Disciplina:", TEMAS_DISPONIBLES, key="in_tema")
+
+    with c_proj:
+        proyecto_input = st.text_input("📁 Proyecto / Trabajo:", key="in_proyecto", placeholder="Ej: Tesis, Ensayo 1")
+
+    with c_fav:
+        st.write("")
+        st.write("")
+        es_fav = st.checkbox("⭐ Favorito", key="in_fav")
+
+    tags_input = st.text_input(
+        "🏷 Etiquetas / Tags (separadas por coma):",
+        key="in_tags",
+        placeholder="Ej: #Psicometria, #Evaluacion, #Psicologia",
+    )
+
+    notas_input = st.text_area(
+        "📝 Notas personales / Cita textual clave (Opcional):",
+        key="in_notas",
+        placeholder="Ej: Pág. 34: 'La estadística descriptiva organiza los datos...', o ideas clave para mi tesis.",
+        height=80,
+    )
+
+    sugerencias = st.session_state.get("sugerencias_tags", [])
+    if sugerencias:
+        st.caption("💡 **Sugerencias detectadas (haz clic para agregar):**")
+        cols_sug = st.columns(min(len(sugerencias), 5))
+        for idx, tag in enumerate(sugerencias):
+            col_idx = idx % min(len(sugerencias), 5)
+            with cols_sug[col_idx]:
+                st.button(
+                    tag,
+                    key=f"btn_sug_{idx}",
+                    on_click=agregar_tag_sugerido,
+                    args=(tag,),
+                )
+
+    try:
+        df_hist = obtener_citas_db()
+        if not df_hist.empty and "tags" in df_hist.columns:
+            tags_conteo = {}
+            for t_raw in df_hist["tags"].dropna():
+                for t_item in str(t_raw).split(","):
+                    t_clean = t_item.strip()
+                    if t_clean:
+                        tags_conteo[t_clean] = tags_conteo.get(t_clean, 0) + 1
+            if tags_conteo:
+                tags_top = sorted(tags_conteo.items(), key=lambda x: x[1], reverse=True)[:6]
+                st.caption("⭐ **Tus etiquetas más frecuentes:**")
+                cols_top = st.columns(len(tags_top))
+                for idx_top, (tag_top, _) in enumerate(tags_top):
+                    with cols_top[idx_top]:
+                        st.button(
+                            f"{tag_top}",
+                            key=f"btn_top_{idx_top}",
+                            on_click=agregar_tag_sugerido,
+                            args=(tag_top,),
+                        )
+    except Exception:
+        pass
+
+    st.button("💾 Guardar en Base de Datos", key="btn_guardar_db", type="primary", use_container_width=True, on_click=accion_guardar)
+
+elif opcion_pestana == "🔍 Mis Citas Guardadas":
+    if "mensaje_alerta" in st.session_state:
+        tipo_alerta, texto_alerta = st.session_state.pop("mensaje_alerta")
+        if tipo_alerta == "toast":
+            st.toast(texto_alerta, icon="✅")
+        elif tipo_alerta == "error":
+            st.error(texto_alerta)
+
+    st.subheader("🔍 Biblioteca de Fuentes Guardadas")
+    df_citas = obtener_citas_db()
+
+    if df_citas.empty:
+        st.info("Aún no has guardado ninguna cita en la base de datos.")
+        render_restaurar_backup_csv()
+    else:
+        df_citas["autor_sort"] = df_citas["autor"].fillna(df_citas["titulo"])
+        df_ordenado = df_citas.sort_values(by="autor_sort", ascending=True).drop(columns=["autor_sort"])
+
+        todas_las_tags = set()
+        for t_str in df_ordenado["tags"].dropna():
+            for t in str(t_str).split(","):
+                clean_t = t.strip()
+                if clean_t:
+                    todas_las_tags.add(clean_t)
+        lista_tags_disponibles = sorted(list(todas_las_tags))
+
+        with st.expander("🎛 Panel de Organización y Filtros Inteligentes", expanded=True):
+            col_proj, col_tema, col_tipo = st.columns(3)
+            with col_proj:
+                proyectos_disponibles = ["Todos"] + sorted(list(df_ordenado["proyecto"].dropna().unique()))
+                filtro_proyecto = st.selectbox("📁 Filtrar por Proyecto / Trabajo:", proyectos_disponibles)
+            with col_tema:
+                col_temas = df_ordenado["tema"].dropna().unique() if "tema" in df_ordenado.columns else []
+                temas_disponibles = ["Todos"] + sorted(list(col_temas))
+                filtro_tema = st.selectbox("🎯 Filtrar por Tema / Disciplina:", temas_disponibles)
+            with col_tipo:
+                tipos_disponibles = ["Todos"] + sorted(list(df_ordenado["tipo_fuente"].dropna().unique()))
+                filtro_tipo = st.selectbox("📖 Filtrar por Tipo de fuente:", tipos_disponibles)
+
+            col_search, col_tags_filter = st.columns([1, 1])
+            with col_search:
+                busqueda = st.text_input("🔎 Búsqueda general (Autor, Título, Revista):", key="search_db")
+            with col_tags_filter:
+                filtro_tags = st.multiselect("🏷️️ Filtrar por Etiquetas:", lista_tags_disponibles)
+
+            col_fav, col_vista = st.columns([1, 1])
+            with col_fav:
+                solo_favs = st.checkbox("⭐ Mostrar solo favoritos")
+            with col_vista:
+                modo_vista = st.radio("Vista:", ["Tarjetas", "Tabla"], horizontal=True)
+
+        df_filtrado = df_ordenado.copy()
+
+        if filtro_proyecto != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["proyecto"] == filtro_proyecto]
+
+        if "tema" in df_filtrado.columns and filtro_tema != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["tema"] == filtro_tema]
+
+        if filtro_tipo != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["tipo_fuente"] == filtro_tipo]
+
+        if solo_favs:
+            df_filtrado = df_filtrado[df_filtrado["es_favorito"] == 1]
+
+        if busqueda:
+            mask_busqueda = (
+                df_filtrado["titulo"].astype(str).str.contains(busqueda, case=False, na=False)
+                | df_filtrado["autor"].astype(str).str.contains(busqueda, case=False, na=False)
+                | df_filtrado["anio"].astype(str).str.contains(busqueda, case=False, na=False)
+                | df_filtrado["tags"].astype(str).str.contains(busqueda, case=False, na=False)
+                | (df_filtrado["notas"].astype(str).str.contains(busqueda, case=False, na=False) if "notas" in df_filtrado.columns else False)
+            )
+            df_filtrado = df_filtrado[mask_busqueda]
+
+        if filtro_tags:
+            def tiene_tags_seleccionados(tags_row):
+                if not pd.notna(tags_row):
+                    return False
+                tags_en_fila = [t.strip() for t in str(tags_row).split(",")]
+                return any(tag in tags_en_fila for tag in filtro_tags)
+            
+            df_filtrado = df_filtrado[df_filtrado["tags"].apply(tiene_tags_seleccionados)]
+
+        st.caption(f"Mostrando **{len(df_filtrado)}** de **{len(df_citas)}** fuentes en total.")
+
+        col_txt, col_csv = st.columns(2)
+        bibliografia_completa = "\n\n".join(df_filtrado["Referencia APA 7"].dropna().tolist())
+
+        with col_txt:
+            st.download_button(
+                label="📄 Exportar Bibliografía (.TXT)",
+                data=bibliografia_completa,
+                file_name="bibliografia_filtrada.txt",
+                mime="text/plain",
+                use_container_width=True,
+            )
+        with col_csv:
+            csv_data = df_filtrado.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="📊 Exportar Resultados (.CSV)",
+                data=csv_data,
+                file_name="citas_filtradas.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+        render_restaurar_backup_csv()
+
+        st.divider()
+
+        if modo_vista == "Tabla":
+            st.dataframe(df_filtrado, use_container_width=True)
+
+        else:
+            for _, row in df_filtrado.iterrows():
+                es_fav = "⭐ " if row.get("es_favorito") == 1 else ""
+                proj_tag = f"📂 [{row.get('proyecto', 'General')}] " if pd.notna(row.get('proyecto')) else ""
+                autor_head = row["autor"] if pd.notna(row["autor"]) and row["autor"] else "Sin autor"
+                anio_head = f"({row['anio']})" if pd.notna(row["anio"]) and row["anio"] else "(s. f.)"
+                titulo_head = (
+                    str(row["titulo"])[:40] + "..."
+                    if len(str(row["titulo"])) > 40
+                    else str(row["titulo"])
+                )
+
+                expander_label = f"{es_fav}{proj_tag}📖 {autor_head} {anio_head} — {titulo_head}"
+
+                with st.expander(expander_label):
+                    col_info, col_del = st.columns([4, 1])
+
+                    with col_info:
+                        st.markdown("**Referencia APA 7:**")
+                        st.code(row["Referencia APA 7"], language=None)
+
+                        st.markdown("**Cita en texto:**")
+                        st.code(row["Cita en Texto"], language=None)
+
+                        c_det1, c_det2, c_det3 = st.columns(3)
+                        with c_det1:
+                            st.caption(f"📁 **Proyecto:** `{row.get('proyecto', 'General')}`")
+                        with c_det2:
+                            st.caption(f"🎯 **Tema:** `{row.get('tema', 'General')}`")
+                        with c_det3:
+                            st.caption(f"📌 **Tipo:** `{row.get('tipo_fuente', 'General')}`")
+
+                        url_val = row.get("url")
+                        if pd.notna(url_val) and str(url_val).strip():
+                            st.caption(f"🔗 **Enlace:** [{url_val}]({url_val})")
+
+                        if pd.notna(row.get("tags")) and str(row.get("tags")).strip():
+                            st.caption(f"🏷 **Tags:** `{row['tags']}`")
+
+                        if "notas" in row and pd.notna(row.get("notas")) and str(row.get("notas")).strip():
+                            st.info(f"📝 **Nota personal / Cita clave:**\n\n{row['notas']}")
+
+                    with col_del:
+                        if st.button("🗑️ Eliminar", key=f"del_{row['id']}", type="secondary"):
+                            conn = sqlite3.connect("fuentes_apa.db")
+                            c = conn.cursor()
+                            c.execute("DELETE FROM citas WHERE id = ?", (row["id"],))
+                            conn.commit()
+                            conn.close()
+                            st.toast("Fuente eliminada correctamente.", icon="🗑️")
+                            st.rerun()
