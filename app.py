@@ -178,13 +178,15 @@ def init_db():
         cita_apa TEXT,
         tipo_fuente TEXT DEFAULT 'General',
         es_favorito INTEGER DEFAULT 0,
-        tags TEXT DEFAULT ''
+        tags TEXT DEFAULT '',
+        proyecto TEXT DEFAULT 'General'
     )""")
 
     columnas_nuevas = [
         ("tipo_fuente", "TEXT DEFAULT 'General'"),
         ("es_favorito", "INTEGER DEFAULT 0"),
         ("tags", "TEXT DEFAULT ''"),
+        ("proyecto", "TEXT DEFAULT 'General'"),
     ]
 
     for col_nombre, col_tipo in columnas_nuevas:
@@ -202,14 +204,14 @@ init_db()
 
 def guardar_cita_db(
     autor, anio, titulo, fuente, url, cita_in_text, cita_apa,
-    tipo_fuente="General", es_favorito=0, tags=""
+    tipo_fuente="General", es_favorito=0, tags="", proyecto="General"
 ):
     conn = sqlite3.connect("fuentes_apa.db")
     c = conn.cursor()
     c.execute("""
-        INSERT INTO citas (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags))
+        INSERT INTO citas (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags, proyecto)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags, proyecto))
     conn.commit()
     conn.close()
 
@@ -220,7 +222,7 @@ def obtener_citas_db():
         SELECT id, autor, anio, titulo, fuente, url, 
                   cita_in_text AS 'Cita en Texto', 
                   cita_apa AS 'Referencia APA 7',
-                  tipo_fuente, es_favorito, tags 
+                  tipo_fuente, es_favorito, tags, proyecto
            FROM citas ORDER BY id DESC
     """, conn)
     conn.close()
@@ -250,6 +252,8 @@ if "select_tipo_fuente" not in st.session_state:
     st.session_state["select_tipo_fuente"] = "Artículo de Revista"
 if "in_tags" not in st.session_state:
     st.session_state["in_tags"] = ""
+if "in_proyecto" not in st.session_state:
+    st.session_state["in_proyecto"] = "General"
 if "sugerencias_tags" not in st.session_state:
     st.session_state["sugerencias_tags"] = []
 if "input_extraer" not in st.session_state:
@@ -383,77 +387,6 @@ def procesar_autores_y_citas(autor_str, titulo_str, anio_str):
     return ref_autores, cita_parentetica, cita_narrativa, anio_ref
 
 
-# --- CAPA DE RESPALDO DE WEB SCRAPING Y APIS PARA ISBN ---
-def extraer_datos_isbn_web(clean_isbn):
-    """Rescata metadatos haciendo web scraping en isbnsearch.org como método de respaldo."""
-    if not BS4_DISPONIBLE:
-        return False
-
-    url = f"https://isbnsearch.org/isbn/{clean_isbn}"
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
-    }
-
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, "html.parser")
-
-            h1 = soup.find("h1")
-            if not h1:
-                return False
-            titulo = h1.get_text(strip=True)
-
-            bookinfo = soup.find("div", class_="bookinfo")
-            if not bookinfo:
-                return False
-
-            texto_info = bookinfo.get_text()
-
-            publisher_match = re.search(r"Publisher:\s*([^\n]+)", texto_info)
-            editorial = publisher_match.group(1).strip() if publisher_match else ""
-
-            # Búsqueda de año flexible en el texto de la web
-            anio = ""
-            date_match = re.search(r"Publication Date:\s*([^\n]+)", texto_info)
-            if date_match:
-                anio_txt = date_match.group(1)
-                anio_match = re.search(r"\b(19\d{2}|20[0-3]\d)\b", anio_txt)
-                if anio_match:
-                    anio = anio_match.group(0)
-            
-            if not anio:
-                # Búsqueda general de 4 dígitos si no encontró la etiqueta exacta
-                anio_match_gen = re.search(r"\b(19\d{2}|20[0-3]\d)\b", texto_info)
-                if anio_match_gen:
-                    anio = anio_match_gen.group(0)
-
-            author_match = re.search(r"Author:\s*([^\n]+)", texto_info)
-            autor = author_match.group(1).strip() if author_match else ""
-
-            st.session_state["in_titulo"] = titulo
-            if autor:
-                st.session_state["in_autor"] = autor
-            if editorial:
-                st.session_state["in_fuente"] = editorial
-            if anio:
-                st.session_state["in_anio"] = anio
-            st.session_state["in_url"] = url
-            st.session_state["in_tipo_fuente"] = "Libro"
-            st.session_state["select_tipo_fuente"] = "Libro"
-
-            sug = extraer_palabras_clave_texto(titulo)
-            st.session_state["sugerencias_tags"] = sug[:10]
-
-            return True
-    except Exception:
-        pass
-
-    return False
-
 # --- NORMALIZADOR DE FECHAS APA 7 (ESPAÑOL) ---
 def normalizar_fecha_apa(fecha_str):
     """Convierte cualquier formato de fecha (año, año-mes, o fecha completa) 
@@ -463,7 +396,6 @@ def normalizar_fecha_apa(fecha_str):
     
     fecha_str = str(fecha_str).strip()
     
-    # Diccionario de meses en inglés a español
     meses_en_a_es = {
         "january": "enero", "jan": "enero",
         "february": "febrero", "feb": "febrero",
@@ -479,12 +411,10 @@ def normalizar_fecha_apa(fecha_str):
         "december": "diciembre", "dec": "diciembre"
     }
 
-    # Si viene con nombre de mes en inglés o español dentro de un texto
     for eng, esp in meses_en_a_es.items():
         if eng in fecha_str.lower():
             fecha_str = fecha_str.lower().replace(eng, esp)
 
-    # 1. Buscar si hay una fecha completa (Año - Mes - Día) tipo "2023-05-12" o "2023/05/12"
     match_completa = re.search(r"\b(19\d{2}|20[0-3]\d)[-/](\d{1,2})[-/](\d{1,2})\b", fecha_str)
     if match_completa:
         anio, mes, dia = match_completa.groups()
@@ -496,7 +426,6 @@ def normalizar_fecha_apa(fecha_str):
         except IndexError:
             pass
 
-    # 2. Buscar si hay Año y Mes tipo "2023-05" o "mayo 2023"
     match_anio_mes = re.search(r"\b(19\d{2}|20[0-3]\d)[-/](\d{1,2})\b", fecha_str)
     if match_anio_mes:
         anio, mes = match_anio_mes.groups()
@@ -508,7 +437,6 @@ def normalizar_fecha_apa(fecha_str):
         except IndexError:
             pass
 
-    # 3. Buscar si el texto contiene un mes en español y un año (ej: "mayo de 2023" o "mayo 2023")
     for esp in meses_en_a_es.values():
         if esp in fecha_str.lower():
             match_y = re.search(r"\b(19\d{2}|20[0-3]\d)\b", fecha_str)
@@ -516,7 +444,6 @@ def normalizar_fecha_apa(fecha_str):
                 anio = match_y.group(0)
                 return f"{esp} de {anio}"
 
-    # 4. Si solo hay un año aislado de 4 dígitos
     match_solo_anio = re.search(r"\b(19\d{2}|20[0-3]\d)\b", fecha_str)
     if match_solo_anio:
         return match_solo_anio.group(0)
@@ -524,9 +451,8 @@ def normalizar_fecha_apa(fecha_str):
     return fecha_str
 
 
-# --- CAPA DE RESPALDO DE WEB SCRAPING Y APIS PARA ISBN ---
+# --- CAPAS DE EXTRACCIÓN DE DATOS ---
 def extraer_datos_isbn_web(clean_isbn):
-    """Rescata metadatos haciendo web scraping en isbnsearch.org como método de respaldo."""
     if not BS4_DISPONIBLE:
         return False
 
@@ -592,7 +518,6 @@ def extraer_datos_isbn_web(clean_isbn):
 
 
 def extraer_datos_isbn(isbn_input):
-    """Extrae metadatos de un libro usando isbnlib, Google Books, Open Library y Web Scraping."""
     st.session_state["sugerencias_tags"] = []
     clean_isbn = re.sub(r"[^\dX]", "", isbn_input.upper())
 
@@ -601,7 +526,6 @@ def extraer_datos_isbn(isbn_input):
 
     encontro_algo = False
 
-    # CAPA 1: Usar isbnlib
     if ISBNLIB_DISPONIBLE:
         try:
             libro = isbnlib.meta(clean_isbn)
@@ -635,7 +559,6 @@ def extraer_datos_isbn(isbn_input):
 
     headers = {"User-Agent": "OrganizadorAPA_App/1.0"}
 
-    # CAPA 2: Google Books API
     try:
         url_gb = f"https://www.googleapis.com/books/v1/volumes?q=isbn:{clean_isbn}"
         res_gb = requests.get(url_gb, headers=headers, timeout=10)
@@ -663,7 +586,6 @@ def extraer_datos_isbn(isbn_input):
     except Exception:
         pass
 
-    # CAPA 3: Open Library API
     try:
         url_ol = f"https://openlibrary.org/api/books?bibkeys=ISBN:{clean_isbn}&format=json&jscmd=data"
         res_ol = requests.get(url_ol, headers=headers, timeout=10)
@@ -688,7 +610,6 @@ def extraer_datos_isbn(isbn_input):
     except Exception:
         pass
 
-    # CAPA 4: Web Scraping de Rescate (ISBNSearch)
     if not st.session_state.get("in_titulo") or not st.session_state.get("in_anio"):
         if extraer_datos_isbn_web(clean_isbn):
             encontro_algo = True
@@ -701,6 +622,8 @@ def extraer_datos_isbn(isbn_input):
         return True, "¡Metadatos del libro y fecha normalizada con éxito!"
 
     return False, "No se encontraron registros completos para este ISBN en las fuentes disponibles."
+
+
 def extraer_datos_doi(doi_input):
     st.session_state["sugerencias_tags"] = []
     match = re.search(r"10\.\d{4,9}/[-._;()/:A-Za-z0-9]+", doi_input)
@@ -731,11 +654,12 @@ def extraer_datos_doi(doi_input):
                 or data.get("published-online")
                 or data.get("created")
             )
-            st.session_state["in_anio"] = (
+            raw_anio = (
                 str(published["date-parts"][0][0])
                 if published and "date-parts" in published
                 else ""
             )
+            st.session_state["in_anio"] = normalizar_fecha_apa(raw_anio)
 
             container = data.get("container-title", [])
             st.session_state["in_fuente"] = (
@@ -786,10 +710,8 @@ def extraer_datos_youtube(url):
                     "05": "mayo", "06": "junio", "07": "julio", "08": "agosto",
                     "09": "septiembre", "10": "octubre", "11": "noviembre", "12": "diciembre",
                 }
-                st.session_state["in_anio"] = (
-                    f"{raw_date[:4]}, {str(int(raw_date[6:8]))} de"
-                    f" {meses.get(raw_date[4:6], '')}"
-                )
+                fecha_formateada = f"{int(raw_date[6:8])} de {meses.get(raw_date[4:6], '')} de {raw_date[:4]}"
+                st.session_state["in_anio"] = fecha_formateada
             else:
                 st.session_state["in_anio"] = ""
 
@@ -877,7 +799,7 @@ def extraer_datos_web(url):
                                     autores.append(info_autor)
 
                                 if not anio and item.get("datePublished"):
-                                    anio = item.get("datePublished")[:4]
+                                    anio = normalizar_fecha_apa(item.get("datePublished"))
             except Exception:
                 continue
 
@@ -917,9 +839,7 @@ def extraer_datos_web(url):
                 },
             ) or soup.find("meta", attrs={"property": "article:published_time"})
             if tag_fecha and tag_fecha.get("content"):
-                match_anio = re.search(r"\b(19\d{2}|20[0-2]\d)\b", tag_fecha["content"])
-                if match_anio:
-                    anio = match_anio.group(0)
+                anio = normalizar_fecha_apa(tag_fecha["content"])
 
         sugerencias_web = []
         meta_kw = soup.find("meta", attrs={"name": re.compile(r"keywords", re.I)})
@@ -992,9 +912,7 @@ def procesar_pdf_con_grobid(archivo_pdf_bytes):
         anio = ""
         if date_node is not None:
             anio_val = date_node.get("when", date_node.text or "")
-            match = re.search(r"\b(19\d{2}|20[0-2]\d)\b", anio_val)
-            if match:
-                anio = match.group(0)
+            anio = normalizar_fecha_apa(anio_val)
 
         journal_node = root.find(".//tei:monogr/tei:title", ns)
         fuente = journal_node.text.strip() if journal_node is not None and journal_node.text else ""
@@ -1151,7 +1069,7 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
             revista = " - ".join(lineas_revista) if lineas_revista else "Documento PDF"
 
             matches_anios = re.findall(r"\b(19\d{2}|20[0-2]\d)\b", texto_completo)
-            anio = matches_anios[0] if matches_anios else ""
+            anio = normalizar_fecha_apa(matches_anios[0]) if matches_anios else ""
 
             st.session_state["sugerencias_tags"] = (
                 extraer_palabras_clave_texto(texto_completo[:1000])[:10]
@@ -1287,22 +1205,25 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
         st.session_state["last_referencia_apa"] = referencia_final
 
     st.divider()
-    st.subheader("📌 Guardar en la Biblioteca")
+    st.subheader("📌 Guardar en la Biblioteca y Proyectos")
 
     opciones_tipo = [
         "Artículo de Revista", "Libro", "Capítulo de Libro",
         "Página Web", "Tesis / Monografía", "Video / Multimedia", "Otro"
     ]
 
-    c_tipo, c_fav = st.columns([3, 1])
+    c_tipo, c_proj, c_fav = st.columns([2, 2, 1])
 
     with c_tipo:
         tipo_fuente = st.selectbox("Tipo de fuente:", opciones_tipo, key="select_tipo_fuente")
 
+    with c_proj:
+        proyecto_input = st.text_input("📁 Proyecto / Trabajo:", key="in_proyecto", placeholder="Ej: Tesis, Ensayo 1")
+
     with c_fav:
         st.write("")
         st.write("")
-        es_fav = st.checkbox("⭐ Marcar como favorito")
+        es_fav = st.checkbox("⭐ Favorito")
 
     tags_input = st.text_input(
         "🏷️ Etiquetas / Tags (separadas por coma):",
@@ -1357,12 +1278,13 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
                 cita_in_text_val = st.session_state["last_cita_in_text"]
 
             fav_int = 1 if es_fav else 0
+            proj_final = proyecto_input.strip() if proyecto_input.strip() else "General"
 
             guardar_cita_db(
                 autor=autor_in, anio=anio_in, titulo=titulo_in,
                 fuente=fuente_in, url=url_in, cita_in_text=cita_in_text_val,
                 cita_apa=cita_apa_val, tipo_fuente=tipo_fuente,
-                es_favorito=fav_int, tags=tags_input.strip(),
+                es_favorito=fav_int, tags=tags_input.strip(), proyecto=proj_final,
             )
 
             limpiar_formulario()
@@ -1382,13 +1304,29 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
         df_citas["autor_sort"] = df_citas["autor"].fillna(df_citas["titulo"])
         df_ordenado = df_citas.sort_values(by="autor_sort", ascending=True).drop(columns=["autor_sort"])
 
-        with st.expander("🎛 Filtros de búsqueda y orden", expanded=True):
-            col_search, col_tipo = st.columns([2, 1])
-            with col_search:
-                busqueda = st.text_input("🔎 Búsqueda general (Autor, Título, Revista, Tags):", key="search_db")
+        # --- EXTRACCIÓN DE TODAS LAS ETIQUETAS ÚNICAS PARA FILTRADO INTELIGENTE ---
+        todas_las_tags = set()
+        for t_str in df_ordenado["tags"].dropna():
+            for t in str(t_str).split(","):
+                clean_t = t.strip()
+                if clean_t:
+                    todas_las_tags.add(clean_t)
+        lista_tags_disponibles = sorted(list(todas_las_tags))
+
+        with st.expander("🎛 Panel de Organización y Filtros Inteligentes", expanded=True):
+            col_proj, col_tipo = st.columns(2)
+            with col_proj:
+                proyectos_disponibles = ["Todos"] + sorted(list(df_ordenado["proyecto"].dropna().unique()))
+                filtro_proyecto = st.selectbox("📁 Filtrar por Proyecto / Trabajo:", proyectos_disponibles)
             with col_tipo:
                 tipos_disponibles = ["Todos"] + sorted(list(df_ordenado["tipo_fuente"].dropna().unique()))
-                filtro_tipo = st.selectbox("Tipo de fuente:", tipos_disponibles)
+                filtro_tipo = st.selectbox("📖 Filtrar por Tipo de fuente:", tipos_disponibles)
+
+            col_search, col_tags_filter = st.columns([1, 1])
+            with col_search:
+                busqueda = st.text_input("🔎 Búsqueda general (Autor, Título, Revista):", key="search_db")
+            with col_tags_filter:
+                filtro_tags = st.multiselect("🏷️ Filtrar por Etiquetas:", lista_tags_disponibles)
 
             col_fav, col_vista = st.columns([1, 1])
             with col_fav:
@@ -1398,6 +1336,19 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
 
         df_filtrado = df_ordenado.copy()
 
+        # Aplicar Filtro de Proyecto
+        if filtro_proyecto != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["proyecto"] == filtro_proyecto]
+
+        # Aplicar Filtro de Tipo de Fuente
+        if filtro_tipo != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["tipo_fuente"] == filtro_tipo]
+
+        # Aplicar Filtro de Favoritos
+        if solo_favs:
+            df_filtrado = df_filtrado[df_filtrado["es_favorito"] == 1]
+
+        # Aplicar Búsqueda General de Texto
         if busqueda:
             mask_busqueda = (
                 df_filtrado["titulo"].astype(str).str.contains(busqueda, case=False, na=False)
@@ -1407,20 +1358,24 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
             )
             df_filtrado = df_filtrado[mask_busqueda]
 
-        if filtro_tipo != "Todos":
-            df_filtrado = df_filtrado[df_filtrado["tipo_fuente"] == filtro_tipo]
+        # Aplicar Filtro de Etiquetas Múltiples
+        if filtro_tags:
+            def tiene_tags_seleccionados(tags_row):
+                if not pd.notna(tags_row):
+                    return False
+                tags_en_fila = [t.strip() for t in str(tags_row).split(",")]
+                return any(tag in tags_en_fila for tag in filtro_tags)
+            
+            df_filtrado = df_filtrado[df_filtrado["tags"].apply(tiene_tags_seleccionados)]
 
-        if solo_favs:
-            df_filtrado = df_filtrado[df_filtrado["es_favorito"] == 1]
-
-        st.caption(f"Mostrando **{len(df_filtrado)}** de **{len(df_citas)}** fuentes.")
+        st.caption(f"Mostrando **{len(df_filtrado)}** de **{len(df_citas)}** fuentes en total.")
 
         col_txt, col_csv = st.columns(2)
         bibliografia_completa = "\n\n".join(df_filtrado["Referencia APA 7"].dropna().tolist())
 
         with col_txt:
             st.download_button(
-                label="📄 Exportar Resultados (.TXT)",
+                label="📄 Exportar Bibliografía (.TXT)",
                 data=bibliografia_completa,
                 file_name="bibliografia_filtrada.txt",
                 mime="text/plain",
@@ -1444,15 +1399,16 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
         else:
             for _, row in df_filtrado.iterrows():
                 es_fav = "⭐ " if row.get("es_favorito") == 1 else ""
+                proj_tag = f"📂 [{row.get('proyecto', 'General')}] " if pd.notna(row.get('proyecto')) else ""
                 autor_head = row["autor"] if pd.notna(row["autor"]) and row["autor"] else "Sin autor"
-                anio_head = f"({row['anio']})" if pd.notna(row["anio"]) and row["anio"] else "(s. f.)"
+                anio_head = f"({row['anio'])" if pd.notna(row["anio"]) and row["anio"] else "(s. f.)"
                 titulo_head = (
-                    str(row["titulo"])[:45] + "..."
-                    if len(str(row["titulo"])) > 45
+                    str(row["titulo"])[:40] + "..."
+                    if len(str(row["titulo"])) > 40
                     else str(row["titulo"])
                 )
 
-                expander_label = f"{es_fav}📖 {autor_head} {anio_head} — {titulo_head}"
+                expander_label = f"{es_fav}{proj_tag}📖 {autor_head} {anio_head} — {titulo_head}"
 
                 with st.expander(expander_label):
                     col_info, col_del = st.columns([4, 1])
@@ -1463,6 +1419,12 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
 
                         st.markdown("**Cita en texto:**")
                         st.code(row["Cita en Texto"], language=None)
+
+                        c_det1, c_det2 = st.columns(2)
+                        with c_det1:
+                            st.caption(f"📁 **Proyecto:** `{row.get('proyecto', 'General')}`")
+                        with c_det2:
+                            st.caption(f"📌 **Tipo:** `{row.get('tipo_fuente', 'General')}`")
 
                         url_val = row.get("url")
                         if pd.notna(url_val) and str(url_val).strip():
