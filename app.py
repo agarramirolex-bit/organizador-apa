@@ -97,31 +97,48 @@ STOPWORDS = {
 }
 
 
+def formatear_tag(texto_tag):
+    if not texto_tag:
+        return ""
+    trad = traducir_al_espanol(texto_tag.strip())
+    palabras = re.findall(r"[a-zA-ZáéíóúÁÉÍÓÚñÑ0-9]+", trad)
+    if not palabras:
+        return ""
+    camel = "".join(p.capitalize() for p in palabras)
+    return f"#{camel}"
+
 def extraer_palabras_clave_texto(texto):
     if not texto:
         return []
     sugerencias = []
+    
+    # 1. Hashtags directos existentes
     hashtags_directos = re.findall(r"#(\w+)", texto)
     for h in hashtags_directos:
-        h_traducido = traducir_al_espanol(h)
-        clean_h = f"#{re.sub(r'[^\w]', '', h_traducido).capitalize()}"
-        if clean_h not in sugerencias:
-            sugerencias.append(clean_h)
+        tag_fmt = formatear_tag(h)
+        if tag_fmt and tag_fmt not in sugerencias:
+            sugerencias.append(tag_fmt)
 
-    palabras = re.findall(r"\b[a-zA-ZáéíóúÁÉÍÓÚñÑ]{4,}\b", texto)
-    palabras_filtradas = []
-    for p in palabras:
-        if p.lower() not in STOPWORDS and p.lower() not in palabras_filtradas:
-            palabras_filtradas.append(p)
-            if len(palabras_filtradas) >= 12:
+    # 2. Búsqueda de bigramas (conceptos de 2 palabras relevantes)
+    palabras_raw = re.findall(r"\b[a-zA-ZáéíóúÁÉÍÓÚñÑ]{3,}\b", texto)
+    for i in range(len(palabras_raw) - 1):
+        p1, p2 = palabras_raw[i].lower(), palabras_raw[i+1].lower()
+        if p1 not in STOPWORDS and p2 not in STOPWORDS and len(p1) > 3 and len(p2) > 3:
+            bigrama_tag = formatear_tag(f"{p1} {p2}")
+            if bigrama_tag and bigrama_tag not in sugerencias:
+                sugerencias.append(bigrama_tag)
+            if len(sugerencias) >= 5:
                 break
 
-    for p in palabras_filtradas:
-        p_traducida = traducir_al_espanol(p)
-        clean_p = re.sub(r"[^\w]", "", p_traducida).capitalize()
-        tag = f"#{clean_p}"
-        if tag not in sugerencias and len(clean_p) > 2:
-            sugerencias.append(tag)
+    # 3. Palabras individuales relevantes
+    for p in palabras_raw:
+        if p.lower() not in STOPWORDS:
+            tag_fmt = formatear_tag(p)
+            if tag_fmt and tag_fmt not in sugerencias and len(tag_fmt) > 4:
+                sugerencias.append(tag_fmt)
+            if len(sugerencias) >= 12:
+                break
+
     return sugerencias
 
 
@@ -173,6 +190,7 @@ def init_db():
         ("tags", "TEXT DEFAULT ''"),
         ("proyecto", "TEXT DEFAULT 'General'"),
         ("tema", "TEXT DEFAULT 'General'"),
+        ("notas", "TEXT DEFAULT ''"),
     ]
     for col_nombre, col_tipo in columnas_nuevas:
         try:
@@ -184,13 +202,13 @@ def init_db():
 
 init_db()
 
-def guardar_cita_db(autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente="General", es_favorito=0, tags="", proyecto="General", tema="General"):
+def guardar_cita_db(autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente="General", es_favorito=0, tags="", proyecto="General", tema="General", notas=""):
     conn = sqlite3.connect("fuentes_apa.db")
     c = conn.cursor()
     c.execute("""
-        INSERT INTO citas (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags, proyecto, tema)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags, proyecto, tema))
+        INSERT INTO citas (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags, proyecto, tema, notas)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags, proyecto, tema, notas))
     conn.commit()
     conn.close()
 
@@ -200,7 +218,7 @@ def obtener_citas_db():
         SELECT id, autor, anio, titulo, fuente, url, 
                   cita_in_text AS 'Cita en Texto', 
                   cita_apa AS 'Referencia APA 7',
-                  tipo_fuente, es_favorito, tags, proyecto, tema
+                  tipo_fuente, es_favorito, tags, proyecto, tema, notas
            FROM citas ORDER BY id DESC
     """, conn)
     conn.close()
@@ -236,6 +254,8 @@ if "in_fav" not in st.session_state:
     st.session_state["in_fav"] = False
 if "in_tema" not in st.session_state:
     st.session_state["in_tema"] = "General"
+if "in_notas" not in st.session_state:
+    st.session_state["in_notas"] = ""
 
 TEMAS_DISPONIBLES = [
     "General", "Estadística y Datos", "Ciencia y Metodología",
@@ -255,7 +275,7 @@ def limpiar_formulario():
     # se llamará dentro de callbacks (on_change o on_click), no lanzará el error.
     keys_string = [
         "in_autor", "in_anio", "in_titulo", "in_fuente", 
-        "in_url", "in_tags", "input_extraer", "in_proyecto"
+        "in_url", "in_tags", "input_extraer", "in_proyecto", "in_notas"
     ]
     for key in keys_string:
         if key in st.session_state:
@@ -317,6 +337,11 @@ def al_cambiar_input_extraer():
         limpiar_formulario()
     else:
         actualizar_tipo_al_tipear()
+
+def al_cambiar_pdf():
+    # Si el usuario hace clic en la 'X' para descartar el PDF, limpiamos automáticamente los datos
+    if st.session_state.get("uploader_pdf") is None:
+        limpiar_formulario()
 
 
 def procesar_autores_y_citas(autor_str, titulo_str, anio_str):
@@ -572,6 +597,15 @@ def extraer_datos_isbn(isbn_input):
 
                 if not st.session_state.get("in_fuente"):
                     st.session_state["in_fuente"] = book.get("publisher", "")
+
+                # Extraer categorías temáticas oficiales de Google Books
+                categories = book.get("categories", [])
+                for cat in categories:
+                    partes_cat = re.split(r"[/,]", cat)
+                    for c_item in partes_cat:
+                        tag_cat = formatear_tag(c_item)
+                        if tag_cat and tag_cat not in st.session_state["sugerencias_tags"]:
+                            st.session_state["sugerencias_tags"].append(tag_cat)
                     
                 st.session_state["in_url"] = f"https://isbnsearch.org/isbn/{clean_isbn}"
                 st.session_state["in_tipo_fuente"] = "Libro"
@@ -956,6 +990,17 @@ def procesar_pdf_con_grobid(archivo_pdf_bytes):
         return False, f"Error de conexión con GROBID: {str(e)}"
 
 
+def limpiar_cadena_autor(texto_autor):
+    limpio = re.sub(r"[\w\.-]+@[\w\.-]+", "", texto_autor)
+    limpio = re.sub(r"[\d\*\†\‡\^]+", "", limpio)
+    palabras_prohibidas = r"\b(universidad|facultad|instituto|departamento|department|school|faculty|laboratory|center|centro|author|correspondence|abstract|keywords|resumen)\b"
+    lineas_limpias = []
+    for seg in re.split(r"[,;/\n]", limpio):
+        s = seg.strip()
+        if len(s) > 2 and not re.search(palabras_prohibidas, s, re.IGNORECASE):
+            lineas_limpias.append(s)
+    return ", ".join(lineas_limpias[:4])
+
 def procesar_pdf_profundo(archivo_pdf_bytes):
     st.session_state["sugerencias_tags"] = []
     if not PDF_DISPONIBLE:
@@ -967,12 +1012,14 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
                 return False, "El PDF está vacío."
 
             primera_pagina = pdf.pages[0]
-            texto_completo = primera_pagina.extract_text() or ""
+            texto_p1 = primera_pagina.extract_text() or ""
+            texto_completo = texto_p1
 
-            # 1. Búsqueda inteligente de DOI en el texto del PDF antes de heurísticas
+            # 1. Búsqueda inteligente de DOI en el texto del PDF (página 1 y 2)
             match_doi = re.search(r"10\.\d{4,9}/[-._;()/:A-Za-z0-9]+", texto_completo)
             if not match_doi and len(pdf.pages) > 1:
                 texto_p2 = pdf.pages[1].extract_text() or ""
+                texto_completo += "\n" + texto_p2
                 match_doi = re.search(r"10\.\d{4,9}/[-._;()/:A-Za-z0-9]+", texto_p2)
 
             if match_doi:
@@ -981,19 +1028,28 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
                 if exito_doi:
                     return True, f"¡DOI detectado ({clean_doi})! Metadatos extraídos de Crossref con precisión."
 
+            # 2. Revisión de metadatos nativos internos del PDF
+            meta = pdf.metadata or {}
+            meta_titulo = str(meta.get("Title", "")).strip()
+            meta_autor = str(meta.get("Author", "")).strip()
+
+            titulo_candidato = ""
+            if meta_titulo and len(meta_titulo) > 8 and not re.search(r"(untitled|microsoft word|scan|document)", meta_titulo, re.IGNORECASE):
+                titulo_candidato = meta_titulo
+
+            # 3. Heurística visual de bloques de texto por tamaño
             palabras = primera_pagina.extract_words(
                 extra_attrs=["size", "fontname"], keep_blank_chars=False
             )
 
-            if not palabras:
+            if not palabras and not titulo_candidato:
                 if OCR_DISPONIBLE:
                     st.session_state["in_titulo"] = "Documento Escaneado"
-                    st.session_state["in_fuente"] = "Requiere revisión manual (OCR)"
+                    st.session_state["in_fuente"] = "Requiere revisión manual"
                     st.session_state["in_tipo_fuente"] = "Artículo de Revista"
                     st.session_state["select_tipo_fuente"] = "Artículo de Revista"
-                    return True, "PDF escaneado. Se aplicó OCR básico."
-                else:
-                    return False, "No se pudo extraer texto legible del PDF."
+                    return True, "PDF escaneado. Se aplicó lectura básica."
+                return False, "No se pudo extraer texto legible del PDF."
 
             palabras_ordenadas = sorted(
                 palabras, key=lambda w: (round(w["top"], 1), w["x0"])
@@ -1025,74 +1081,98 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
                         "bottom": l[0]["bottom"],
                     })
 
-            if not bloques:
-                return False, "No se encontraron bloques legibles."
+            if not titulo_candidato and bloques:
+                altura_p = primera_pagina.height
+                bloques_cuerpo = [b for b in bloques if b["top"] > 40 and b["bottom"] < (altura_p - 40)]
+                candidatos_t = bloques_cuerpo if bloques_cuerpo else bloques
+                max_size = max(b["size"] for b in candidatos_t)
 
-            tamanos = [b["size"] for b in bloques]
-            max_size = max(tamanos)
-
-            lineas_titulo = []
-            indice_titulo_fin = 0
-            es_bloque_titulo = False
-
-            for idx, b in enumerate(bloques):
-                if abs(b["size"] - max_size) <= 1.5:
-                    lineas_titulo.append(b["texto"])
-                    es_bloque_titulo = True
-                    indice_titulo_fin = idx
-                elif es_bloque_titulo:
-                    break
-
-            titulo = " ".join(lineas_titulo).strip()
-
-            bloques_despues_titulo = bloques[indice_titulo_fin + 1 :]
-            autores_encontrados = []
-
-            for b in bloques_despues_titulo[:5]:
-                texto = b["texto"]
-                if re.search(
-                    r"http|@|vol|no\.|issn|doi|revista|recibido|aceptado",
-                    texto, re.IGNORECASE,
-                ):
-                    continue
-                if len(texto) > 3 and not re.search(r"\b(19\d{2}|20[0-3]\d)\b", texto):
-                    autores_encontrados.append(texto)
-                    if len(autores_encontrados) >= 2:
+                lineas_titulo = []
+                indice_fin_tit = 0
+                for idx, b in enumerate(candidatos_t):
+                    if abs(b["size"] - max_size) <= 1.5 and len(b["texto"]) > 3:
+                        lineas_titulo.append(b["texto"])
+                        indice_fin_tit = idx
+                    elif lineas_titulo:
                         break
+                titulo_candidato = " ".join(lineas_titulo).strip()
 
-            autor = " / ".join(autores_encontrados) if autores_encontrados else ""
+            titulo_final = titulo_candidato if titulo_candidato else "Documento PDF"
 
-            altura_pagina = primera_pagina.height
-            lineas_revista = []
+            # 4. Búsqueda inversa en Crossref por título
+            crossref_encontrado = False
+            if len(titulo_final) > 15 and len(titulo_final.split()) >= 3:
+                try:
+                    q_clean = requests.utils.quote(titulo_final[:120])
+                    res_cr = requests.get(
+                        f"https://api.crossref.org/works?query.title={q_clean}&rows=1",
+                        headers={"User-Agent": "APA_Tool/1.0"},
+                        timeout=5
+                    )
+                    if res_cr.status_code == 200:
+                        items = res_cr.json().get("message", {}).get("items", [])
+                        if items:
+                            top_item = items[0]
+                            t_encontrado = top_item.get("title", [""])[0]
+                            w1 = set(re.findall(r"\w{4,}", titulo_final.lower()))
+                            w2 = set(re.findall(r"\w{4,}", t_encontrado.lower()))
+                            if w1 and len(w1.intersection(w2)) / max(len(w1), 1) >= 0.5:
+                                titulo_final = t_encontrado
+                                autores_cr = [
+                                    f"{a.get('family', '')}, {a.get('given', '')[0]}."
+                                    for a in top_item.get("author", [])
+                                    if a.get("family") and a.get("given")
+                                ]
+                                if autores_cr:
+                                    st.session_state["in_autor"] = ", ".join(autores_cr)
+                                
+                                pubs = top_item.get("container-title", [])
+                                if pubs:
+                                    st.session_state["in_fuente"] = pubs[0]
+                                
+                                p_date = top_item.get("published-print") or top_item.get("published-online") or top_item.get("created")
+                                if p_date and "date-parts" in p_date:
+                                    st.session_state["in_anio"] = str(p_date["date-parts"][0][0])
 
-            for b in bloques:
-                es_encabezado_o_pie = (b["top"] < 100) or (b["bottom"] > (altura_pagina - 100))
-                if es_encabezado_o_pie and re.search(
-                    r"revista|iztacala|vol|no\.|issn|pp|\d{4}", b["texto"], re.IGNORECASE
-                ):
-                    lineas_revista.append(b["texto"])
+                                if "DOI" in top_item:
+                                    st.session_state["in_url"] = f"https://doi.org/{top_item['DOI']}"
 
-            revista = " - ".join(lineas_revista) if lineas_revista else "Documento PDF"
+                                crossref_encontrado = True
+                except Exception:
+                    pass
 
-            matches_anios = re.findall(r"\b(19\d{2}|20[0-2]\d)\b", texto_completo)
-            anio = normalizar_fecha_apa(matches_anios[0]) if matches_anios else ""
+            if not crossref_encontrado:
+                if meta_autor and len(meta_autor) > 2 and not re.search(r"(microsoft|scanner|author|user)", meta_autor, re.IGNORECASE):
+                    st.session_state["in_autor"] = limpiar_cadena_autor(meta_autor)
+                else:
+                    autores_raw = []
+                    for b in bloques:
+                        t = b["texto"]
+                        if re.search(r"@(?!\.)|[0-9]{4}|doi|http|issn|vol\.", t, re.IGNORECASE):
+                            continue
+                        if t != titulo_final and 3 < len(t) < 80:
+                            autores_raw.append(t)
+                            if len(autores_raw) >= 2:
+                                break
+                    st.session_state["in_autor"] = limpiar_cadena_autor(" / ".join(autores_raw))
 
-            st.session_state["sugerencias_tags"] = (
-                extraer_palabras_clave_texto(texto_completo[:1000])[:10]
-            )
+                anios_match = re.findall(r"\b(19\d{2}|20[0-2]\d)\b", texto_completo)
+                if anios_match and not st.session_state.get("in_anio"):
+                    st.session_state["in_anio"] = normalizar_fecha_apa(anios_match[0])
 
-            st.session_state["in_titulo"] = titulo
-            st.session_state["in_autor"] = autor
-            st.session_state["in_fuente"] = revista
-            st.session_state["in_anio"] = anio
-            st.session_state["in_url"] = ""
+                if not st.session_state.get("in_fuente"):
+                    st.session_state["in_fuente"] = "Documento PDF"
+
+            st.session_state["in_titulo"] = titulo_final
             st.session_state["in_tipo_fuente"] = "Artículo de Revista"
             st.session_state["select_tipo_fuente"] = "Artículo de Revista"
+            st.session_state["sugerencias_tags"] = extraer_palabras_clave_texto(f"{titulo_final} {texto_completo[:600]}")[:10]
 
-            return True, "¡Análisis local del PDF completado!"
+            msg_res = "¡Documento PDF analizado con éxito!" if not crossref_encontrado else "¡Artículo identificado y verificado en Crossref!"
+            return True, msg_res
 
     except Exception as e:
-        return False, f"Error al procesar la estructura del PDF: {str(e)}"
+        return False, f"Error al procesar el PDF: {str(e)}"
 
 
 # --- FUNCIÓN CALLBACK DE GUARDADO ---
@@ -1142,12 +1222,13 @@ def accion_guardar():
         cita_in_text_val = st.session_state["last_cita_in_text"]
 
     proj_final = proyecto.strip() if proyecto.strip() else "General"
+    notas = st.session_state.get("in_notas", "")
 
     guardar_cita_db(
         autor=autor, anio=anio, titulo=titulo, fuente=fuente, url=url,
         cita_in_text=cita_in_text_val, cita_apa=cita_apa_val,
         tipo_fuente=tipo, es_favorito=fav_int, tags=tags.strip(),
-        proyecto=proj_final, tema=tema
+        proyecto=proj_final, tema=tema, notas=notas.strip()
     )
     
     limpiar_formulario()
@@ -1209,7 +1290,12 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
                 st.warning("Por favor ingresa una URL, DOI o ISBN.")
 
     with col_file:
-        archivo_pdf = st.file_uploader("Sube tu archivo PDF:", type=["pdf"])
+        archivo_pdf = st.file_uploader(
+            "Sube tu archivo PDF:", 
+            type=["pdf"], 
+            key="uploader_pdf", 
+            on_change=al_cambiar_pdf
+        )
         if archivo_pdf is not None:
             if st.button("🚀 Analizar PDF con GROBID", type="secondary"):
                 with st.spinner("Procesando documento con el motor GROBID..."):
@@ -1307,6 +1393,13 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
         placeholder="Ej: #Psicometria, #Evaluacion, #Psicologia",
     )
 
+    notas_input = st.text_area(
+        "📝 Notas personales / Cita textual clave (Opcional):",
+        key="in_notas",
+        placeholder="Ej: Pág. 34: 'La estadística descriptiva organiza los datos...', o ideas clave para mi tesis.",
+        height=80,
+    )
+
     sugerencias = st.session_state.get("sugerencias_tags", [])
     if sugerencias:
         st.caption("💡 **Sugerencias detectadas (haz clic para agregar):**")
@@ -1320,6 +1413,31 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
                     on_click=agregar_tag_sugerido,
                     args=(tag,),
                 )
+
+    # Mostrar etiquetas más utilizadas en la biblioteca como atajos rápidos
+    try:
+        df_hist = obtener_citas_db()
+        if not df_hist.empty and "tags" in df_hist.columns:
+            tags_conteo = {}
+            for t_raw in df_hist["tags"].dropna():
+                for t_item in str(t_raw).split(","):
+                    t_clean = t_item.strip()
+                    if t_clean:
+                        tags_conteo[t_clean] = tags_conteo.get(t_clean, 0) + 1
+            if tags_conteo:
+                tags_top = sorted(tags_conteo.items(), key=lambda x: x[1], reverse=True)[:6]
+                st.caption("⭐ **Tus etiquetas más frecuentes:**")
+                cols_top = st.columns(len(tags_top))
+                for idx_top, (tag_top, _) in enumerate(tags_top):
+                    with cols_top[idx_top]:
+                        st.button(
+                            f"{tag_top}",
+                            key=f"btn_top_{idx_top}",
+                            on_click=agregar_tag_sugerido,
+                            args=(tag_top,),
+                        )
+    except Exception:
+        pass
 
     st.button("💾 Guardar en Base de Datos", key="btn_guardar_db", type="primary", use_container_width=True, on_click=accion_guardar)
 
@@ -1386,6 +1504,7 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
                 | df_filtrado["autor"].astype(str).str.contains(busqueda, case=False, na=False)
                 | df_filtrado["anio"].astype(str).str.contains(busqueda, case=False, na=False)
                 | df_filtrado["tags"].astype(str).str.contains(busqueda, case=False, na=False)
+                | (df_filtrado["notas"].astype(str).str.contains(busqueda, case=False, na=False) if "notas" in df_filtrado.columns else False)
             )
             df_filtrado = df_filtrado[mask_busqueda]
 
@@ -1464,6 +1583,9 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
 
                         if pd.notna(row.get("tags")) and str(row.get("tags")).strip():
                             st.caption(f"🏷 **Tags:** `{row['tags']}`")
+
+                        if "notas" in row and pd.notna(row.get("notas")) and str(row.get("notas")).strip():
+                            st.info(f"📝 **Nota personal / Cita clave:**\n\n{row['notas']}")
 
                     with col_del:
                         if st.button("🗑️ Eliminar", key=f"del_{row['id']}", type="secondary"):
