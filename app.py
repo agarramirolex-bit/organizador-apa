@@ -263,18 +263,20 @@ if "pestana_activa" not in st.session_state:
 
 
 def limpiar_formulario():
+    # Asignamos strings vacíos en vez de hacer "del" para no romper los widgets activos
     keys_a_limpiar = [
         "in_autor", "in_anio", "in_titulo", "in_fuente", 
         "in_url", "in_tags", "input_extraer"
     ]
     for key in keys_a_limpiar:
         if key in st.session_state:
-            del st.session_state[key]
+            st.session_state[key] = ""
             
     st.session_state["in_tipo_fuente"] = "Artículo de Revista"
     st.session_state["select_tipo_fuente"] = "Artículo de Revista"
     st.session_state["sugerencias_tags"] = []
     
+    # Estas claves no están atadas a ningún widget directo, así que es seguro borrarlas
     if "last_referencia_apa" in st.session_state:
         del st.session_state["last_referencia_apa"]
     if "last_cita_in_text" in st.session_state:
