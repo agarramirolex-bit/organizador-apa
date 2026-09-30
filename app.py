@@ -1505,14 +1505,72 @@ def accion_guardar():
         st.session_state["mensaje_alerta"] = ("toast", "¡Fuente guardada exitosamente!")
 
 
-# --- CONTROL DE NAVEGACIÓN DE PESTAÑAS ---
-opcion_pestana = st.radio(
-    "Navegación",
-    ["➕ Crear Cita y Referencia", "🔍 Mis Citas Guardadas"],
-    horizontal=True,
-    key="pestana_activa",
-    label_visibility="collapsed",
-)
+elif opcion_pestana == "🔍 Mis Citas Guardadas":
+    st.subheader("🔍 Biblioteca de Fuentes Guardadas")
+    df_citas = obtener_citas_db()
+
+    if df_citas.empty:
+        st.info("Aún no has guardado ninguna cita en la base de datos.")
+        render_restaurar_backup_csv()
+    else:
+        # 1. Filtros principales de proyecto y búsqueda (manteniendo tu lógica actual)
+        proyectos_disponibles = ["Todos"] + sorted(list(df_citas["proyecto"].dropna().unique()))
+        filtro_proyecto = st.selectbox("📁 Seleccionar Proyecto Principal:", proyectos_disponibles)
+
+        df_filtrado = df_citas.copy()
+        if filtro_proyecto != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["proyecto"] == filtro_proyecto]
+
+        st.divider()
+
+        # 2. Organización por Subcarpetas basadas en el Tipo de Fuente
+        # Tipos estándar que manejas: Libros, Artículos, Videos, Páginas Web, etc.
+        tipos_presentes = sorted(list(df_filtrado["tipo_fuente"].dropna().unique()))
+
+        if not tipos_presentes:
+            st.warning("No hay fuentes con tipos definidos en este proyecto.")
+        else:
+            # Creamos pestañas o expansores anidados simlando subcarpetas
+            tabs_subcarpetas = st.tabs([f"📂 {tipo}" for tipo in tipos_presentes])
+
+            for idx, tipo_fuente in enumerate(tipos_presentes):
+                with tabs_subcarpetas[idx]:
+                    df_sub = df_filtrado[df_filtrado["tipo_fuente"] == tipo_fuente]
+                    st.caption(f"Mostrando **{len(df_sub)}** elementos en la subcarpeta: **{tipo_fuente}**")
+
+                    for _, row in df_sub.iterrows():
+                        es_fav = "⭐ " if row.get("es_favorito") == 1 else ""
+                        autor_head = row["autor"] if pd.notna(row["autor"]) and row["autor"] else "Sin autor"
+                        anio_head = f"({row['anio']})" if pd.notna(row["anio"]) and row["anio"] else "(s. f.)"
+                        titulo_head = str(row["titulo"])[:40] + "..." if len(str(row["titulo"])) > 40 else str(row["titulo"])
+
+                        expander_label = f"{es_fav}📖 {autor_head} {anio_head} — {titulo_head}"
+
+                        with st.expander(expander_label):
+                            col_info, col_del = st.columns([4, 1])
+
+                            with col_info:
+                                st.markdown("**Referencia APA 7:**")
+                                st.code(row["Referencia APA 7"], language=None)
+                                st.markdown("**Cita en texto:**")
+                                st.code(row["Cita en Texto"], language=None)
+                                
+                                if pd.notna(row.get("tags")) and str(row.get("tags")).strip():
+                                    st.caption(f"🏷 **Tags:** `{row['tags']}`")
+                                
+                                url_val = row.get("url")
+                                if pd.notna(url_val) and str(url_val).strip():
+                                    st.caption(f"🔗 **Enlace:** [{url_val}]({url_val})")
+
+                            with col_del:
+                                if st.button("🗑️ Eliminar", key=f"sub_del_{row['id']}", type="secondary"):
+                                    conn = sqlite3.connect("fuentes_apa.db")
+                                    c = conn.cursor()
+                                    c.execute("DELETE FROM citas WHERE id = ?", (row["id"],))
+                                    conn.commit()
+                                    conn.close()
+                                    st.toast("Fuente eliminada correctamente.", icon="🗑️")
+                                    st.rerun()
 
 # Avisos y notificaciones persistentes entre pestañas
 if "mensaje_alerta" in st.session_state:
