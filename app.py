@@ -48,7 +48,6 @@ st.set_page_config(
 
 # --- TRADUCCIÓN AUTOMÁTICA AL ESPAÑOL ---
 def traducir_al_espanol(texto):
-    """Traduce un texto o palabra clave al español usando la API pública de traducción."""
     if not texto or not texto.strip():
         return texto
     try:
@@ -71,11 +70,9 @@ def traducir_al_espanol(texto):
 
 # --- HELPER ISBN ---
 def es_isbn(texto):
-    """Verifica si la cadena contiene un formato ISBN-10 o ISBN-13 (con o sin guiones)."""
     if not texto:
         return False
     clean = re.sub(r"[^\dX]", "", str(texto).upper())
-    
     if len(clean) == 10:
         return bool(re.match(r"^\d{9}[\dX]$", clean))
     elif len(clean) == 13:
@@ -101,12 +98,9 @@ STOPWORDS = {
 
 
 def extraer_palabras_clave_texto(texto):
-    """Extrae hashtags y palabras clave, traduciéndolas al español."""
     if not texto:
         return []
-
     sugerencias = []
-
     hashtags_directos = re.findall(r"#(\w+)", texto)
     for h in hashtags_directos:
         h_traducido = traducir_al_espanol(h)
@@ -128,7 +122,6 @@ def extraer_palabras_clave_texto(texto):
         tag = f"#{clean_p}"
         if tag not in sugerencias and len(clean_p) > 2:
             sugerencias.append(tag)
-
     return sugerencias
 
 
@@ -144,29 +137,22 @@ if st.query_params.get("auth") == "CypherOK":
 if not st.session_state["autenticado"]:
     st.title("🔒 Acceso Restringido")
     st.write("Ingresa la clave de acceso para utilizar el organizador de fuentes.")
-
     clave_ingresada = st.text_input("Contraseña:", type="password")
-
-    if st.button("Entrar", type="primary") or (
-        clave_ingresada and clave_ingresada == CONTRASEÑA_CORRECTA
-    ):
+    if st.button("Entrar", type="primary") or (clave_ingresada and clave_ingresada == CONTRASEÑA_CORRECTA):
         if clave_ingresada == CONTRASEÑA_CORRECTA:
             st.session_state["autenticado"] = True
             st.query_params["auth"] = "CypherOK"
             st.rerun()
         else:
             st.error("Contraseña incorrecta. Inténtalo de nuevo.")
-
     st.stop()
 
 # --- CONFIGURACIÓN GROBID Y BASE DE DATOS ---
 GROBID_URL = "https://grobid.kermitt.org/api/processHeaderDocument"
 
-
 def init_db():
     conn = sqlite3.connect("fuentes_apa.db")
     c = conn.cursor()
-
     c.execute("""CREATE TABLE IF NOT EXISTS citas (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         autor TEXT,
@@ -181,31 +167,23 @@ def init_db():
         tags TEXT DEFAULT '',
         proyecto TEXT DEFAULT 'General'
     )""")
-
     columnas_nuevas = [
         ("tipo_fuente", "TEXT DEFAULT 'General'"),
         ("es_favorito", "INTEGER DEFAULT 0"),
         ("tags", "TEXT DEFAULT ''"),
         ("proyecto", "TEXT DEFAULT 'General'"),
     ]
-
     for col_nombre, col_tipo in columnas_nuevas:
         try:
             c.execute(f"ALTER TABLE citas ADD COLUMN {col_nombre} {col_tipo}")
         except sqlite3.OperationalError:
             pass
-
     conn.commit()
     conn.close()
 
-
 init_db()
 
-
-def guardar_cita_db(
-    autor, anio, titulo, fuente, url, cita_in_text, cita_apa,
-    tipo_fuente="General", es_favorito=0, tags="", proyecto="General"
-):
+def guardar_cita_db(autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente="General", es_favorito=0, tags="", proyecto="General"):
     conn = sqlite3.connect("fuentes_apa.db")
     c = conn.cursor()
     c.execute("""
@@ -214,7 +192,6 @@ def guardar_cita_db(
     """, (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags, proyecto))
     conn.commit()
     conn.close()
-
 
 def obtener_citas_db():
     conn = sqlite3.connect("fuentes_apa.db")
@@ -253,7 +230,9 @@ if "select_tipo_fuente" not in st.session_state:
 if "in_tags" not in st.session_state:
     st.session_state["in_tags"] = ""
 if "in_proyecto" not in st.session_state:
-    st.session_state["in_proyecto"] = "General"
+    st.session_state["in_proyecto"] = ""
+if "in_fav" not in st.session_state:
+    st.session_state["in_fav"] = False
 if "sugerencias_tags" not in st.session_state:
     st.session_state["sugerencias_tags"] = []
 if "input_extraer" not in st.session_state:
@@ -263,20 +242,23 @@ if "pestana_activa" not in st.session_state:
 
 
 def limpiar_formulario():
-    # Asignamos strings vacíos en vez de hacer "del" para no romper los widgets activos
-    keys_a_limpiar = [
+    # Se modifican los campos de manera segura; como esta función ahora solo 
+    # se llamará dentro de callbacks (on_change o on_click), no lanzará el error.
+    keys_string = [
         "in_autor", "in_anio", "in_titulo", "in_fuente", 
-        "in_url", "in_tags", "input_extraer"
+        "in_url", "in_tags", "input_extraer", "in_proyecto"
     ]
-    for key in keys_a_limpiar:
+    for key in keys_string:
         if key in st.session_state:
             st.session_state[key] = ""
+            
+    if "in_fav" in st.session_state:
+        st.session_state["in_fav"] = False
             
     st.session_state["in_tipo_fuente"] = "Artículo de Revista"
     st.session_state["select_tipo_fuente"] = "Artículo de Revista"
     st.session_state["sugerencias_tags"] = []
     
-    # Estas claves no están atadas a ningún widget directo, así que es seguro borrarlas
     if "last_referencia_apa" in st.session_state:
         del st.session_state["last_referencia_apa"]
     if "last_cita_in_text" in st.session_state:
@@ -1091,6 +1073,64 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
         return False, f"Error al procesar la estructura del PDF: {str(e)}"
 
 
+# --- FUNCIÓN CALLBACK DE GUARDADO ---
+def accion_guardar():
+    titulo = st.session_state.get("in_titulo", "")
+    autor = st.session_state.get("in_autor", "")
+    
+    if not titulo.strip() and not autor.strip():
+        st.session_state["guardar_error"] = "Ingresa al menos el título o autor antes de guardar."
+        return
+
+    anio = st.session_state.get("in_anio", "")
+    fuente = st.session_state.get("in_fuente", "")
+    url = st.session_state.get("in_url", "")
+    tipo = st.session_state.get("select_tipo_fuente", "Artículo de Revista")
+    tags = st.session_state.get("in_tags", "")
+    proyecto = st.session_state.get("in_proyecto", "")
+    fav_int = 1 if st.session_state.get("in_fav", False) else 0
+
+    if "last_referencia_apa" not in st.session_state or "last_cita_in_text" not in st.session_state:
+        ref_autores, cita_par, cita_nar, anio_ref = procesar_autores_y_citas(autor, titulo, anio)
+        partes_ref = []
+        if ref_autores:
+            partes_ref.append(f"{ref_autores}")
+            partes_ref.append(f"{anio_ref}.")
+        else:
+            if titulo.strip():
+                partes_ref.append(f"*{titulo.strip()}*.")
+            partes_ref.append(f"{anio_ref}.")
+
+        if ref_autores and titulo.strip():
+            if "YouTube" in fuente:
+                partes_ref.append(f"{titulo.strip()}.")
+            else:
+                partes_ref.append(f"*{titulo.strip()}*.")
+
+        if fuente.strip():
+            partes_ref.append(f"{fuente.strip()}.")
+        if url.strip():
+            partes_ref.append(url.strip())
+
+        cita_apa_val = " ".join(partes_ref)
+        cita_in_text_val = f"Par: {cita_par} | Nar: {cita_nar}"
+    else:
+        cita_apa_val = st.session_state["last_referencia_apa"]
+        cita_in_text_val = st.session_state["last_cita_in_text"]
+
+    proj_final = proyecto.strip() if proyecto.strip() else "General"
+
+    guardar_cita_db(
+        autor=autor, anio=anio, titulo=titulo, fuente=fuente, url=url,
+        cita_in_text=cita_in_text_val, cita_apa=cita_apa_val,
+        tipo_fuente=tipo, es_favorito=fav_int, tags=tags.strip(), proyecto=proj_final
+    )
+    
+    limpiar_formulario()
+    st.session_state["pestana_activa"] = "🔍 Mis Citas Guardadas"
+    st.session_state["guardar_exito"] = True
+
+
 # --- CONTROL DE NAVEGACIÓN DE PESTAÑAS ---
 opcion_pestana = st.radio(
     "Navegación",
@@ -1142,7 +1182,6 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
             if st.button("🚀 Analizar PDF con GROBID", type="secondary"):
                 with st.spinner("Procesando documento con el motor GROBID..."):
                     bytes_data = archivo_pdf.read()
-
                     exito, msg = procesar_pdf_con_grobid(bytes_data)
 
                     if not exito:
@@ -1225,7 +1264,7 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
     with c_fav:
         st.write("")
         st.write("")
-        es_fav = st.checkbox("⭐ Favorito")
+        es_fav = st.checkbox("⭐ Favorito", key="in_fav")
 
     tags_input = st.text_input(
         "🏷 Etiquetas / Tags (separadas por coma):",
@@ -1247,53 +1286,13 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
                     args=(tag,),
                 )
 
-    if st.button("💾 Guardar en Base de Datos", key="btn_guardar_db", type="primary", use_container_width=True):
-        if titulo_in.strip() or autor_in.strip():
-            if "last_referencia_apa" not in st.session_state or "last_cita_in_text" not in st.session_state:
-                ref_autores, cita_par, cita_nar, anio_ref = procesar_autores_y_citas(
-                    autor_in, titulo_in, anio_in
-                )
-                partes_ref = []
-                if ref_autores:
-                    partes_ref.append(f"{ref_autores}")
-                    partes_ref.append(f"{anio_ref}.")
-                else:
-                    if titulo_in.strip():
-                        partes_ref.append(f"*{titulo_in.strip()}*.")
-                    partes_ref.append(f"{anio_ref}.")
+    st.button("💾 Guardar en Base de Datos", key="btn_guardar_db", type="primary", use_container_width=True, on_click=accion_guardar)
 
-                if ref_autores and titulo_in.strip():
-                    if "YouTube" in fuente_in:
-                        partes_ref.append(f"{titulo_in.strip()}.")
-                    else:
-                        partes_ref.append(f"*{titulo_in.strip()}*.")
-
-                if fuente_in.strip():
-                    partes_ref.append(f"{fuente_in.strip()}.")
-                if url_in.strip():
-                    partes_ref.append(url_in.strip())
-
-                cita_apa_val = " ".join(partes_ref)
-                cita_in_text_val = f"Par: {cita_par} | Nar: {cita_nar}"
-            else:
-                cita_apa_val = st.session_state["last_referencia_apa"]
-                cita_in_text_val = st.session_state["last_cita_in_text"]
-
-            fav_int = 1 if es_fav else 0
-            proj_final = proyecto_input.strip() if proyecto_input.strip() else "General"
-
-            guardar_cita_db(
-                autor=autor_in, anio=anio_in, titulo=titulo_in,
-                fuente=fuente_in, url=url_in, cita_in_text=cita_in_text_val,
-                cita_apa=cita_apa_val, tipo_fuente=tipo_fuente,
-                es_favorito=fav_int, tags=tags_input.strip(), proyecto=proj_final,
-            )
-            limpiar_formulario()
-            st.session_state["pestana_activa"] = "🔍 Mis Citas Guardadas"
-            st.toast("¡Fuente guardada exitosamente! Redirigiendo...", icon="✅")
-            st.rerun()
-        else:
-            st.error("Ingresa al menos el título o autor antes de guardar.")
+    if st.session_state.pop("guardar_exito", False):
+        st.toast("¡Fuente guardada exitosamente! Redirigiendo...", icon="✅")
+        
+    if "guardar_error" in st.session_state:
+        st.error(st.session_state.pop("guardar_error"))
 
 elif opcion_pestana == "🔍 Mis Citas Guardadas":
     st.subheader("🔍 Biblioteca de Fuentes Guardadas")
