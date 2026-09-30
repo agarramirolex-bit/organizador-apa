@@ -68,6 +68,22 @@ def traducir_al_espanol(texto):
     return texto
 
 
+# --- VALIDADOR DE TEXTO ANTI-BASURA ---
+def es_texto_valido(texto, min_caracteres=3):
+    if not texto or not str(texto).strip():
+        return False
+    t = str(texto).strip()
+    if len(t) < min_caracteres:
+        return False
+    # Detectar palabras largas aleatorias sin vocales o secuencias caóticas (ej. ajsdhasdhashasd)
+    palabras = t.split()
+    for p in palabras:
+        if len(p) >= 12:
+            vocales = len(re.findall(r"[aeiouáéíóúAEIOUÁÉÍÓÚ]", p))
+            if vocales == 0 or (len(p) > 14 and vocales / len(p) < 0.15):
+                return False
+    return True
+
 # --- HELPER ISBN ---
 def es_isbn(texto):
     if not texto:
@@ -203,14 +219,39 @@ def init_db():
 init_db()
 
 def guardar_cita_db(autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente="General", es_favorito=0, tags="", proyecto="General", tema="General", notas=""):
-    conn = sqlite3.connect("fuentes_apa.db")
+    conn = sqlite3.connect("fuentes_apa.db", timeout=15)
     c = conn.cursor()
-    c.execute("""
-        INSERT INTO citas (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags, proyecto, tema, notas)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags, proyecto, tema, notas))
-    conn.commit()
-    conn.close()
+    
+    # Detector de duplicados en el mismo proyecto (por URL o por Título exacto)
+    registro_existente = None
+    if url and url.strip():
+        c.execute("SELECT id FROM citas WHERE url = ? AND proyecto = ?", (url.strip(), proyecto.strip()))
+        registro_existente = c.fetchone()
+    
+    if not registro_existente and titulo and titulo.strip():
+        c.execute("SELECT id FROM citas WHERE LOWER(titulo) = LOWER(?) AND proyecto = ?", (titulo.strip(), proyecto.strip()))
+        registro_existente = c.fetchone()
+
+    if registro_existente:
+        c_id = registro_existente[0]
+        c.execute("""
+            UPDATE citas 
+            SET autor = ?, anio = ?, titulo = ?, fuente = ?, url = ?, 
+                cita_in_text = ?, cita_apa = ?, tipo_fuente = ?, 
+                es_favorito = ?, tags = ?, tema = ?, notas = ?
+            WHERE id = ?
+        """, (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags, tema, notas, c_id))
+        conn.commit()
+        conn.close()
+        return "actualizado"
+    else:
+        c.execute("""
+            INSERT INTO citas (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags, proyecto, tema, notas)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (autor, anio, titulo, fuente, url, cita_in_text, cita_apa, tipo_fuente, es_favorito, tags, proyecto, tema, notas))
+        conn.commit()
+        conn.close()
+        return "creado"
 
 def obtener_citas_db():
     conn = sqlite3.connect("fuentes_apa.db")
@@ -223,6 +264,52 @@ def obtener_citas_db():
     """, conn)
     conn.close()
     return df
+
+def render_restaurar_backup_csv():
+    with st.expander("📥 Restaurar o Importar Copia de Seguridad (.CSV)", expanded=False):
+        st.write("¿Cambiaste de equipo o se reinició tu base de datos? Sube aquí un archivo CSV previamente exportado para recuperar todas tus citas:")
+        archivo_csv_subido = st.file_uploader("Selecciona archivo CSV de respaldo:", type=["csv"], key="uploader_restore_csv")
+        if archivo_csv_subido is not None:
+            if st.button("🔄 Importar todas las citas del CSV", key="btn_ejecutar_import_csv", type="primary"):
+                try:
+                    df_import = pd.read_csv(archivo_csv_subido)
+                    columnas_necesarias = ["autor", "anio", "titulo"]
+                    if not all(col in df_import.columns for col in columnas_necesarias):
+                        st.error("El archivo CSV no contiene las columnas mínimas requeridas (autor, anio, titulo).")
+                    else:
+                        importadas = 0
+                        actualizadas = 0
+                        for _, r in df_import.iterrows():
+                            aut = str(r.get("autor", "")).strip() if pd.notna(r.get("autor")) else ""
+                            an = str(r.get("anio", "")).strip() if pd.notna(r.get("anio")) else ""
+                            tit = str(r.get("titulo", "")).strip() if pd.notna(r.get("titulo")) else ""
+                            fuen = str(r.get("fuente", "")).strip() if pd.notna(r.get("fuente")) else ""
+                            u = str(r.get("url", "")).strip() if pd.notna(r.get("url")) else ""
+                            cin = str(r.get("Cita en Texto", r.get("cita_in_text", ""))).strip()
+                            cap = str(r.get("Referencia APA 7", r.get("cita_apa", ""))).strip()
+                            tip = str(r.get("tipo_fuente", "General")).strip()
+                            fav = int(r.get("es_favorito", 0)) if pd.notna(r.get("es_favorito")) else 0
+                            tg = str(r.get("tags", "")).strip() if pd.notna(r.get("tags")) else ""
+                            pr = str(r.get("proyecto", "General")).strip() if pd.notna(r.get("proyecto")) else "General"
+                            tm = str(r.get("tema", "General")).strip() if pd.notna(r.get("tema")) else "General"
+                            nt = str(r.get("notas", "")).strip() if pd.notna(r.get("notas")) else ""
+
+                            if tit or aut:
+                                res_g = guardar_cita_db(
+                                    autor=aut, anio=an, titulo=tit, fuente=fuen, url=u,
+                                    cita_in_text=cin, cita_apa=cap, tipo_fuente=tip,
+                                    es_favorito=fav, tags=tg, proyecto=pr, tema=tm, notas=nt
+                                )
+                                if res_g == "actualizado":
+                                    actualizadas += 1
+                                else:
+                                    importadas += 1
+
+                        st.success(f"¡Proceso completado! Se agregaron {importadas} citas nuevas y se actualizaron {actualizadas}.")
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Error al importar el archivo CSV: {str(e)}")
+
 
 
 # --- INTERFAZ PRINCIPAL Y SESSION STATE ---
@@ -373,6 +460,9 @@ def al_cambiar_pdf():
 
 def procesar_autores_y_citas(autor_str, titulo_str, anio_str):
     anio_clean = anio_str.strip()
+    # Si el año contiene solo letras o texto basura sin dígitos válidos, normalizar a s. f.
+    if anio_clean and not re.search(r"\b(18\d{2}|19\d{2}|20[0-3]\d)\b", anio_clean) and "s. f." not in anio_clean.lower():
+        anio_clean = "s. f."
     anio_ref = f"({anio_clean})" if anio_clean else "(s. f.)"
     anio_cita_texto = anio_clean.split(",")[0] if anio_clean else "s. f."
 
@@ -1320,21 +1410,43 @@ def procesar_pdf_profundo(archivo_pdf_bytes):
 
 # --- FUNCIÓN CALLBACK DE GUARDADO ---
 def accion_guardar():
-    titulo = st.session_state.get("in_titulo", "")
-    autor = st.session_state.get("in_autor", "")
+    titulo = st.session_state.get("in_titulo", "").strip()
+    autor = st.session_state.get("in_autor", "").strip()
     
-    if not titulo.strip() and not autor.strip():
+    if not titulo and not autor:
         st.session_state["mensaje_alerta"] = ("error", "Ingresa al menos el título o autor antes de guardar.")
         return
 
-    anio = st.session_state.get("in_anio", "")
-    fuente = st.session_state.get("in_fuente", "")
-    url = st.session_state.get("in_url", "")
+    # Sello de seguridad anti-basura (evitar cadenas aleatorias como ajsdhasdhashasd)
+    if titulo and not es_texto_valido(titulo, min_caracteres=3):
+        st.session_state["mensaje_alerta"] = ("error", "El título ingresado parece inválido o texto de prueba aleatorio. Por favor ingresa un título legible.")
+        return
+
+    if autor and not es_texto_valido(autor, min_caracteres=2):
+        st.session_state["mensaje_alerta"] = ("error", "El autor ingresado parece inválido o texto de prueba aleatorio. Por favor ingresa un autor legible.")
+        return
+
+    anio = st.session_state.get("in_anio", "").strip()
+    fuente = st.session_state.get("in_fuente", "").strip()
+    url = st.session_state.get("in_url", "").strip()
     tipo = st.session_state.get("select_tipo_fuente", "Artículo de Revista")
     tema = st.session_state.get("in_tema", "General")
-    tags = st.session_state.get("in_tags", "")
-    proyecto = st.session_state.get("in_proyecto", "")
+    tags_raw = st.session_state.get("in_tags", "")
+    proyecto = st.session_state.get("in_proyecto", "").strip()
+    notas = st.session_state.get("in_notas", "").strip()
     fav_int = 1 if st.session_state.get("in_fav", False) else 0
+
+    # Limpieza, formateo y deduplicación de etiquetas
+    tags_limpias = []
+    tags_vistas = set()
+    for t_item in tags_raw.split(","):
+        t_clean = t_item.strip()
+        if t_clean and t_clean != "#":
+            t_fmt = formatear_tag(t_clean)
+            if t_fmt and t_fmt.lower() not in tags_vistas:
+                tags_limpias.append(t_fmt)
+                tags_vistas.add(t_fmt.lower())
+    tags_final = ", ".join(tags_limpias)
 
     if "last_referencia_apa" not in st.session_state or "last_cita_in_text" not in st.session_state:
         ref_autores, cita_par, cita_nar, anio_ref = procesar_autores_y_citas(autor, titulo, anio)
@@ -1343,20 +1455,20 @@ def accion_guardar():
             partes_ref.append(f"{ref_autores}")
             partes_ref.append(f"{anio_ref}.")
         else:
-            if titulo.strip():
-                partes_ref.append(f"*{titulo.strip()}*.")
+            if titulo:
+                partes_ref.append(f"*{titulo}*.")
             partes_ref.append(f"{anio_ref}.")
 
-        if ref_autores and titulo.strip():
+        if ref_autores and titulo:
             if "YouTube" in fuente:
-                partes_ref.append(f"{titulo.strip()}.")
+                partes_ref.append(f"{titulo}.")
             else:
-                partes_ref.append(f"*{titulo.strip()}*.")
+                partes_ref.append(f"*{titulo}*.")
 
-        if fuente.strip():
-            partes_ref.append(f"{fuente.strip()}.")
-        if url.strip():
-            partes_ref.append(url.strip())
+        if fuente:
+            partes_ref.append(f"{fuente}.")
+        if url:
+            partes_ref.append(url)
 
         cita_apa_val = " ".join(partes_ref)
         cita_in_text_val = f"Par: {cita_par} | Nar: {cita_nar}"
@@ -1364,19 +1476,22 @@ def accion_guardar():
         cita_apa_val = st.session_state["last_referencia_apa"]
         cita_in_text_val = st.session_state["last_cita_in_text"]
 
-    proj_final = proyecto.strip() if proyecto.strip() else "General"
-    notas = st.session_state.get("in_notas", "")
+    proj_final = proyecto if proyecto else "General"
 
-    guardar_cita_db(
+    # Guardar en base de datos con detección de duplicados
+    res_db = guardar_cita_db(
         autor=autor, anio=anio, titulo=titulo, fuente=fuente, url=url,
         cita_in_text=cita_in_text_val, cita_apa=cita_apa_val,
-        tipo_fuente=tipo, es_favorito=fav_int, tags=tags.strip(),
-        proyecto=proj_final, tema=tema, notas=notas.strip()
+        tipo_fuente=tipo, es_favorito=fav_int, tags=tags_final,
+        proyecto=proj_final, tema=tema, notas=notas
     )
     
     limpiar_formulario()
     st.session_state["pestana_activa"] = "🔍 Mis Citas Guardadas"
-    st.session_state["mensaje_alerta"] = ("toast", "¡Fuente guardada exitosamente!")
+    if res_db == "actualizado":
+        st.session_state["mensaje_alerta"] = ("toast", "🔄 Esta fuente ya existía en el proyecto: se actualizaron sus datos.")
+    else:
+        st.session_state["mensaje_alerta"] = ("toast", "¡Fuente guardada exitosamente!")
 
 
 # --- CONTROL DE NAVEGACIÓN DE PESTAÑAS ---
@@ -1440,17 +1555,12 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
             on_change=al_cambiar_pdf
         )
         if archivo_pdf is not None:
-            c_btn_pdf1, c_btn_pdf2 = st.columns([1, 1])
-            with c_btn_pdf1:
-                btn_analizar_auto = st.button("✨ Analizar con IA / Auto", type="primary", use_container_width=True)
-            with c_btn_pdf2:
-                btn_analizar_local = st.button("⚙️ Motor Local / Crossref", type="secondary", use_container_width=True)
-
-            if btn_analizar_auto or btn_analizar_local:
-                with st.spinner("Analizando documento PDF..."):
+            if st.button("🚀 Extraer datos del PDF", key="btn_analizar_pdf_unico", type="primary", use_container_width=True):
+                with st.spinner("Procesando documento PDF..."):
                     bytes_data = archivo_pdf.read()
                     exito = False
                     msg = ""
+                    motor_usado = "local"
 
                     api_key_activa = st.session_state.get("gemini_api_key", "")
                     if not api_key_activa:
@@ -1459,19 +1569,29 @@ if opcion_pestana == "➕ Crear Cita y Referencia":
                         except Exception:
                             pass
 
-                    # Si se presiona el botón de IA y hay clave disponible
-                    if btn_analizar_auto and api_key_activa:
-                        exito, msg = extraer_metadatos_con_gemini(bytes_data, api_key_activa)
-                        if not exito:
-                            st.info(f"{msg} -> Pasando al motor local con Crossref...")
+                    # Prioridad 1: IA con Gemini 3.8 Flash si hay clave
+                    if api_key_activa:
+                        exito_gem, msg_gem = extraer_metadatos_con_gemini(bytes_data, api_key_activa)
+                        if exito_gem:
+                            exito = True
+                            msg = msg_gem
+                            motor_usado = "ia"
+                        else:
+                            st.info(f"{msg_gem} -> Cambiando automáticamente a motor local...")
                             exito, msg = procesar_pdf_profundo(bytes_data)
+                            motor_usado = "local"
                     else:
-                        # Si no hay clave de Gemini o presionó motor local
+                        # Prioridad 2: Motor local reforzado con Crossref y metadatos nativos
                         exito, msg = procesar_pdf_profundo(bytes_data)
                         if not exito:
                             exito, msg = procesar_pdf_con_grobid(bytes_data)
+                        motor_usado = "local"
 
                     if exito:
+                        if motor_usado == "ia":
+                            st.toast("✨ Analizado con IA (Gemini 3.8 Flash)", icon="🤖")
+                        else:
+                            st.toast("⚙️ Analizado con Motor Local (Crossref)", icon="📚")
                         st.success(msg)
                         st.rerun()
                     else:
@@ -1613,6 +1733,7 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
 
     if df_citas.empty:
         st.info("Aún no has guardado ninguna cita en la base de datos.")
+        render_restaurar_backup_csv()
     else:
         df_citas["autor_sort"] = df_citas["autor"].fillna(df_citas["titulo"])
         df_ordenado = df_citas.sort_values(by="autor_sort", ascending=True).drop(columns=["autor_sort"])
@@ -1705,6 +1826,8 @@ elif opcion_pestana == "🔍 Mis Citas Guardadas":
                 mime="text/csv",
                 use_container_width=True,
             )
+
+        render_restaurar_backup_csv()
 
         st.divider()
 
